@@ -1,4 +1,5 @@
 import Image from 'next/image'
+import { MapPin } from 'lucide-react'
 import { createServiceClient } from '@/lib/supabase'
 import { getCohortLeaderboard, type CohortLeaderboardRow } from '@/lib/cohort-scoring'
 import { CohortLeaderboardTable } from '@/components/CohortLeaderboardTable'
@@ -162,7 +163,11 @@ export default async function HomePage() {
         )}
 
         {nextWeek && (
-          <p className="text-xs text-amber-500 mb-4">Next Week: {nextWeek.course_name}</p>
+          <div className="inline-flex items-center gap-2 px-4 py-2 mb-6 rounded-lg bg-[#fef3c7] border border-[#f59e0b]">
+            <MapPin size={14} className="text-amber-500 shrink-0" />
+            <span className="text-sm font-semibold text-amber-600">Next Week&apos;s Course:</span>
+            <span className="text-sm font-medium text-[#111111]">{nextWeek.course_name}</span>
+          </div>
         )}
 
         {activeCohort ? (
