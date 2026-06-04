@@ -122,7 +122,24 @@ export async function POST(req: NextRequest) {
         .insert({ display_name: name, country_code: null })
         .select()
         .single()
-      if (error || !newPlayer) {
+      if (error) {
+        if (error.code === '23505') {
+          // Concurrent resolvePlayer call won the race on display_name unique constraint —
+          // fetch the row that was just inserted by the winning call.
+          const { data: existing } = await db
+            .from('players')
+            .select('*')
+            .eq('display_name', name)
+            .single()
+          if (existing) {
+            return { matched_player_id: existing.id, matched_name: existing.display_name, is_new_player: false }
+          }
+        }
+        console.error('[parse-week] resolvePlayer insert failed', { name, code: error.code, message: error.message, error })
+        return { matched_player_id: null, matched_name: null, is_new_player: true }
+      }
+      if (!newPlayer) {
+        console.error('[parse-week] resolvePlayer insert returned no data', { name })
         return { matched_player_id: null, matched_name: null, is_new_player: true }
       }
       playerList.push(newPlayer as Player)

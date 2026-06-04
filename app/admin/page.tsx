@@ -1,13 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { LogOut } from 'lucide-react'
+import { LogOut, X } from 'lucide-react'
 import { UploadZone } from '@/components/UploadZone'
 import { PlayerManagement } from '@/components/PlayerManagement'
 import { CohortManagement } from '@/components/CohortManagement'
 import { AdminManagement } from '@/components/AdminManagement'
 import { supabase } from '@/lib/supabase'
-import type { ParsedWeekData, MatchedLeaderboardEntry } from '@/types'
+import type { ParsedWeekData, MatchedLeaderboardEntry, MatchedCTPEntry, MatchedLDEntry } from '@/types'
 
 type AdminStep = 'auth' | 'upload' | 'review' | 'done'
 
@@ -19,34 +19,60 @@ interface WeekOption {
   cohort_id: string | null
 }
 
+interface PlayerOption {
+  id: string
+  display_name: string
+  aliases: string[]
+}
+
+function getOrphanIds(original: ParsedWeekData, current: ParsedWeekData): string[] {
+  const originalNewIds = new Set<string>()
+  for (const e of [...original.leaderboard, ...original.ctp, ...original.ld]) {
+    if (e.is_new_player && e.matched_player_id) originalNewIds.add(e.matched_player_id)
+  }
+  const currentRefs = new Set<string>()
+  for (const e of [...current.leaderboard, ...current.ctp, ...current.ld]) {
+    if (e.matched_player_id) currentRefs.add(e.matched_player_id)
+  }
+  return [...originalNewIds].filter((id) => !currentRefs.has(id))
+}
+
+function filterPlayers(players: PlayerOption[], query: string): PlayerOption[] {
+  const q = query.toLowerCase().trim()
+  if (!q) return players
+  return players.filter(
+    (p) =>
+      p.display_name.toLowerCase().includes(q) ||
+      p.aliases.some((a) => a.toLowerCase().includes(q))
+  )
+}
+
 export default function AdminPage() {
   const [step, setStep] = useState<AdminStep>('auth')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState('')
 
-  // Week selection
   const [weeks, setWeeks] = useState<WeekOption[]>([])
   const [selectedWeekId, setSelectedWeekId] = useState<string>('new')
   const [newCourseName, setNewCourseName] = useState('')
   const [newDate, setNewDate] = useState('')
   const [selectedCohortId, setSelectedCohortId] = useState('')
-
-  // Cohorts (for new week assignment)
   const [cohorts, setCohorts] = useState<{ id: string; name: string; status: string }[]>([])
 
-  // Files
   const [lbFile, setLbFile] = useState<File | null>(null)
   const [ctpFile, setCtpFile] = useState<File | null>(null)
   const [ldFile, setLdFile] = useState<File | null>(null)
 
-  // Parsed review state
   const [parsedData, setParsedData] = useState<ParsedWeekData | null>(null)
+  const [originalParsedData, setOriginalParsedData] = useState<ParsedWeekData | null>(null)
+  const [allPlayers, setAllPlayers] = useState<PlayerOption[]>([])
   const [reviewWeekId, setReviewWeekId] = useState<string>('')
   const [uploadIds, setUploadIds] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [parseError, setParseError] = useState('')
   const [ineligiblePlayers, setIneligiblePlayers] = useState<Set<string>>(new Set())
+  const [dnfPlayers, setDnfPlayers] = useState<Set<string>>(new Set())
   const [saveWeekLoading, setSaveWeekLoading] = useState(false)
   const [saveWeekSuccess, setSaveWeekSuccess] = useState(false)
 
@@ -144,7 +170,6 @@ export default function AdminPage() {
         return
       }
 
-      // Week creation and storage uploads are handled server-side with service role
       const formData = new FormData()
       if (selectedWeekId !== 'new') {
         formData.append('week_id', selectedWeekId)
@@ -157,19 +182,49 @@ export default function AdminPage() {
       formData.append('ctp', ctpFile)
       formData.append('ld', ldFile)
 
-      const parseRes = await fetch('/api/parse-week', {
-        method: 'POST',
-        body: formData,
-      })
+      const [parseRes, playersRes] = await Promise.all([
+        fetch('/api/parse-week', { method: 'POST', body: formData }),
+        supabase
+          .from('players')
+          .select('id, display_name, player_aliases(alias)')
+          .order('display_name'),
+      ])
+
       if (!parseRes.ok) {
         const err = await parseRes.json()
         throw new Error(err.error ?? 'Parse failed')
       }
 
       const parsed = await parseRes.json()
-      setParsedData({ leaderboard: parsed.leaderboard, ctp: parsed.ctp, ld: parsed.ld })
+      const weekData: ParsedWeekData = {
+        leaderboard: parsed.leaderboard,
+        ctp: parsed.ctp,
+        ld: parsed.ld,
+      }
+
+      const initialDnf = new Set<string>(
+        (parsed.leaderboard as MatchedLeaderboardEntry[])
+          .filter((e) => e.dnf)
+          .map((e) => e.matched_player_id ?? '')
+          .filter(Boolean)
+      )
+      setDnfPlayers(initialDnf)
+      setIneligiblePlayers(new Set(initialDnf))
+      setParsedData(weekData)
+      setOriginalParsedData({ leaderboard: parsed.leaderboard, ctp: parsed.ctp, ld: parsed.ld })
       setReviewWeekId(parsed.week_id)
       setUploadIds(parsed.upload_ids ?? [])
+
+      setAllPlayers(
+        ((playersRes.data ?? []) as { id: string; display_name: string; player_aliases: { alias: string }[] }[]).map(
+          (p) => ({
+            id: p.id,
+            display_name: p.display_name,
+            aliases: (p.player_aliases ?? []).map((a) => a.alias),
+          })
+        )
+      )
+
       setStep('review')
     } catch (err) {
       setParseError(err instanceof Error ? err.message : 'Unknown error')
@@ -178,10 +233,43 @@ export default function AdminPage() {
     }
   }
 
+  async function handleBack() {
+    if (parsedData && originalParsedData) {
+      const orphanIds = getOrphanIds(originalParsedData, parsedData)
+      if (orphanIds.length > 0) {
+        try {
+          await fetch('/api/cleanup-orphans', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ player_ids: orphanIds }),
+          })
+        } catch {
+          // best-effort cleanup, don't block navigation
+        }
+      }
+    }
+    setStep('upload')
+    setIneligiblePlayers(new Set())
+    setDnfPlayers(new Set())
+    setParsedData(null)
+    setOriginalParsedData(null)
+  }
+
   async function handleConfirm() {
     if (!parsedData) return
     setSubmitting(true)
     try {
+      if (originalParsedData) {
+        const orphanIds = getOrphanIds(originalParsedData, parsedData)
+        if (orphanIds.length > 0) {
+          await fetch('/api/cleanup-orphans', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ player_ids: orphanIds }),
+          })
+        }
+      }
+
       const res = await fetch('/api/confirm-week', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -192,6 +280,7 @@ export default function AdminPage() {
           ld: parsedData.ld,
           upload_ids: uploadIds,
           ineligible_players: Array.from(ineligiblePlayers),
+          dnf_players: Array.from(dnfPlayers),
         }),
       })
       if (!res.ok) {
@@ -204,6 +293,38 @@ export default function AdminPage() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  function handleRename(oldPlayerId: string, newName: string) {
+    setParsedData((prev) => {
+      if (!prev) return prev
+      const update = <T extends { matched_player_id: string | null; matched_name: string | null }>(e: T): T =>
+        e.matched_player_id === oldPlayerId ? { ...e, matched_name: newName } : e
+      return { leaderboard: prev.leaderboard.map(update), ctp: prev.ctp.map(update), ld: prev.ld.map(update) }
+    })
+  }
+
+  function handleRemap(oldPlayerId: string, targetId: string, targetName: string) {
+    setParsedData((prev) => {
+      if (!prev) return prev
+      const update = <T extends { matched_player_id: string | null; matched_name: string | null; is_new_player: boolean }>(e: T): T =>
+        e.matched_player_id === oldPlayerId
+          ? { ...e, matched_player_id: targetId, matched_name: targetName, is_new_player: false }
+          : e
+      return { leaderboard: prev.leaderboard.map(update), ctp: prev.ctp.map(update), ld: prev.ld.map(update) }
+    })
+  }
+
+  function discardLeaderboardEntry(index: number) {
+    setParsedData((prev) => prev ? { ...prev, leaderboard: prev.leaderboard.filter((_, i) => i !== index) } : prev)
+  }
+
+  function discardCtpEntry(index: number) {
+    setParsedData((prev) => prev ? { ...prev, ctp: prev.ctp.filter((_, i) => i !== index) } : prev)
+  }
+
+  function discardLdEntry(index: number) {
+    setParsedData((prev) => prev ? { ...prev, ld: prev.ld.filter((_, i) => i !== index) } : prev)
   }
 
   // --- Derived ---
@@ -283,7 +404,6 @@ export default function AdminPage() {
           <p className="text-gray-500 mb-8">Upload the three Trackman screenshots to parse scores automatically.</p>
 
           <form onSubmit={handleUpload} className="space-y-8">
-            {/* Cohort selector */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Cohort</label>
               <select
@@ -299,7 +419,6 @@ export default function AdminPage() {
               </select>
             </div>
 
-            {/* Week selector */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Week</label>
               <select
@@ -356,7 +475,6 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* Upload zones */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <UploadZone label="Leaderboard" file={lbFile} onChange={setLbFile} />
               <UploadZone label="Closest to Pin" file={ctpFile} onChange={setCtpFile} />
@@ -383,13 +501,24 @@ export default function AdminPage() {
   }
 
   if (step === 'review' && parsedData) {
+    const newPlayerIds = new Set<string>()
+    for (const e of [...parsedData.leaderboard, ...parsedData.ctp, ...parsedData.ld]) {
+      if (e.is_new_player && e.matched_player_id) newPlayerIds.add(e.matched_player_id)
+    }
+
     return (
       <div className="min-h-screen bg-[#f9f9f9] text-gray-900 p-4">
         <div className="max-w-3xl mx-auto py-8">
           <h1 className="text-2xl font-bold text-amber-500 mb-2">Review Parsed Results</h1>
-          <p className="text-gray-500 mb-8">Check the data below, then confirm to write to the database.</p>
+          <p className="text-gray-500 mb-4">Check the data below, then confirm to write to the database.</p>
 
-          {/* Leaderboard */}
+          {newPlayerIds.size > 0 && (
+            <div className="mb-6 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+              <strong>{newPlayerIds.size} new player{newPlayerIds.size > 1 ? 's' : ''}</strong> auto-created from OCR.
+              Review each below — rename, remap to existing, or discard the entry.
+            </div>
+          )}
+
           <Section title="Leaderboard">
             <table className="w-full text-sm">
               <thead>
@@ -399,12 +528,15 @@ export default function AdminPage() {
                   <th className="pb-2 text-left">Matched to</th>
                   <th className="pb-2 text-right font-mono">Score</th>
                   <th className="pb-2 text-right font-mono">vs Par</th>
+                  <th className="pb-2 text-right text-xs font-medium">DNF</th>
                   <th className="pb-2 text-right text-xs font-medium">No Bonus</th>
+                  <th className="pb-2 w-6" />
                 </tr>
               </thead>
               <tbody>
                 {parsedData.leaderboard.map((e, i) => {
-                  const key = e.matched_name ?? ''
+                  const key = e.matched_player_id ?? ''
+                  const isDnf = dnfPlayers.has(key)
                   return (
                     <ReviewLeaderboardRow
                       key={i}
@@ -415,6 +547,19 @@ export default function AdminPage() {
                         next.has(key) ? next.delete(key) : next.add(key)
                         return next
                       })}
+                      isDnf={isDnf}
+                      onToggleDnf={() => {
+                        if (isDnf) {
+                          setDnfPlayers((prev) => { const n = new Set(prev); n.delete(key); return n })
+                        } else {
+                          setDnfPlayers((prev) => { const n = new Set(prev); n.add(key); return n })
+                          setIneligiblePlayers((prev) => { const n = new Set(prev); n.add(key); return n })
+                        }
+                      }}
+                      onDiscard={() => discardLeaderboardEntry(i)}
+                      allPlayers={allPlayers}
+                      onRename={handleRename}
+                      onRemap={handleRemap}
                     />
                   )
                 })}
@@ -422,43 +567,39 @@ export default function AdminPage() {
             </table>
           </Section>
 
-          {/* CTP */}
           <Section title="Closest to Pin">
             {(() => {
-              const effectiveWinner = parsedData.ctp.find((e) => !ineligiblePlayers.has(e.matched_name ?? ''))
-              return parsedData.ctp.map((e, i) => {
-                const ineligible = ineligiblePlayers.has(e.matched_name ?? '')
-                const isWinner = !ineligible && e === effectiveWinner
-                return (
-                  <div key={i} className={`text-sm flex items-center gap-2 ${ineligible ? 'opacity-50' : 'text-gray-700'}`}>
-                    <span className={ineligible ? 'line-through' : ''}>
-                      #{e.position} {e.name} → {e.matched_name ?? <span className="text-amber-600 font-medium">NEW</span>} | Hole {e.hole} | {e.distance}
-                    </span>
-                    {ineligible && <span className="text-xs font-medium text-amber-600 shrink-0">Ineligible</span>}
-                    {isWinner && <span className="text-xs font-medium text-green-600 shrink-0">Winner</span>}
-                  </div>
-                )
-              })
+              const effectiveWinner = parsedData.ctp.find((e) => !ineligiblePlayers.has(e.matched_player_id ?? ''))
+              return parsedData.ctp.map((e, i) => (
+                <ReviewCTPRow
+                  key={i}
+                  entry={e}
+                  ineligible={ineligiblePlayers.has(e.matched_player_id ?? '')}
+                  isWinner={!ineligiblePlayers.has(e.matched_player_id ?? '') && e === effectiveWinner}
+                  onDiscard={() => discardCtpEntry(i)}
+                  allPlayers={allPlayers}
+                  onRename={handleRename}
+                  onRemap={handleRemap}
+                />
+              ))
             })()}
           </Section>
 
-          {/* LD */}
           <Section title="Longest Drive">
             {(() => {
-              const effectiveWinner = parsedData.ld.find((e) => !ineligiblePlayers.has(e.matched_name ?? ''))
-              return parsedData.ld.map((e, i) => {
-                const ineligible = ineligiblePlayers.has(e.matched_name ?? '')
-                const isWinner = !ineligible && e === effectiveWinner
-                return (
-                  <div key={i} className={`text-sm flex items-center gap-2 ${ineligible ? 'opacity-50' : 'text-gray-700'}`}>
-                    <span className={ineligible ? 'line-through' : ''}>
-                      #{e.position} {e.name} → {e.matched_name ?? <span className="text-amber-600 font-medium">NEW</span>} | Hole {e.hole} | {e.distance_yards}
-                    </span>
-                    {ineligible && <span className="text-xs font-medium text-amber-600 shrink-0">Ineligible</span>}
-                    {isWinner && <span className="text-xs font-medium text-green-600 shrink-0">Winner</span>}
-                  </div>
-                )
-              })
+              const effectiveWinner = parsedData.ld.find((e) => !ineligiblePlayers.has(e.matched_player_id ?? ''))
+              return parsedData.ld.map((e, i) => (
+                <ReviewLDRow
+                  key={i}
+                  entry={e}
+                  ineligible={ineligiblePlayers.has(e.matched_player_id ?? '')}
+                  isWinner={!ineligiblePlayers.has(e.matched_player_id ?? '') && e === effectiveWinner}
+                  onDiscard={() => discardLdEntry(i)}
+                  allPlayers={allPlayers}
+                  onRename={handleRename}
+                  onRemap={handleRemap}
+                />
+              ))
             })()}
           </Section>
 
@@ -466,7 +607,7 @@ export default function AdminPage() {
 
           <div className="flex gap-3">
             <button
-              onClick={() => { setStep('upload'); setIneligiblePlayers(new Set()) }}
+              onClick={handleBack}
               className="flex-1 border border-gray-300 text-gray-600 hover:text-gray-900 hover:border-gray-400 py-3 rounded-lg transition-colors"
             >
               Back
@@ -510,6 +651,8 @@ export default function AdminPage() {
   return null
 }
 
+// --- Sub-components ---
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-6 bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
@@ -523,32 +666,292 @@ function ReviewLeaderboardRow({
   entry,
   ineligible,
   onToggle,
+  isDnf,
+  onToggleDnf,
+  onDiscard,
+  allPlayers,
+  onRename,
+  onRemap,
 }: {
   entry: MatchedLeaderboardEntry
   ineligible: boolean
   onToggle: () => void
+  isDnf: boolean
+  onToggleDnf: () => void
+  onDiscard: () => void
+  allPlayers: PlayerOption[]
+  onRename: (oldId: string, newName: string) => void
+  onRemap: (oldId: string, targetId: string, targetName: string) => void
 }) {
   return (
-    <tr className={`border-b border-gray-100 transition-opacity ${ineligible ? 'opacity-40' : ''}`}>
-      <td className="py-1.5 text-gray-500 font-mono">{entry.position}</td>
-      <td className={`py-1.5 text-gray-700 ${ineligible ? 'line-through' : ''}`}>{entry.name}</td>
+    <tr className={`border-b border-gray-100 transition-opacity discard-row ${isDnf || ineligible ? 'opacity-40' : ''}`}>
+      <td className="py-1.5 text-gray-500 font-mono">{isDnf ? 'DNF' : entry.position}</td>
+      <td className={`py-1.5 text-gray-700 ${isDnf || ineligible ? 'line-through' : ''}`}>{entry.name}</td>
       <td className="py-1.5">
-        {entry.is_new_player ? (
-          <span className="text-amber-600 text-xs font-medium">NEW: {entry.matched_name}</span>
-        ) : (
-          <span className="text-green-600 text-xs">{entry.matched_name}</span>
-        )}
+        <PlayerMatchCell
+          entry={entry}
+          allPlayers={allPlayers}
+          onRename={onRename}
+          onRemap={onRemap}
+        />
       </td>
-      <td className="py-1.5 text-right font-mono text-amber-600 font-semibold">{entry.stableford_score}</td>
-      <td className="py-1.5 text-right font-mono text-gray-500">{entry.score_vs_par}</td>
+      <td className="py-1.5 text-right font-mono text-amber-600 font-semibold">
+        {isDnf ? '0' : entry.stableford_score}
+      </td>
+      <td className="py-1.5 text-right font-mono text-gray-500">
+        {isDnf ? '–' : entry.score_vs_par}
+      </td>
+      <td className="py-1.5 text-right">
+        <input
+          type="checkbox"
+          checked={isDnf}
+          onChange={onToggleDnf}
+          className="w-4 h-4 accent-amber-500 cursor-pointer"
+        />
+      </td>
       <td className="py-1.5 text-right">
         <input
           type="checkbox"
           checked={ineligible}
           onChange={onToggle}
-          className="w-4 h-4 accent-amber-500 cursor-pointer"
+          disabled={isDnf}
+          className="w-4 h-4 accent-amber-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
         />
       </td>
+      <td className="py-1.5 text-right w-6">
+        <button
+          onClick={onDiscard}
+          title="Discard entry"
+          className="discard-btn text-gray-400 hover:text-red-500 transition-colors"
+        >
+          <X size={14} />
+        </button>
+      </td>
     </tr>
+  )
+}
+
+function ReviewCTPRow({
+  entry,
+  ineligible,
+  isWinner,
+  onDiscard,
+  allPlayers,
+  onRename,
+  onRemap,
+}: {
+  entry: MatchedCTPEntry
+  ineligible: boolean
+  isWinner: boolean
+  onDiscard: () => void
+  allPlayers: PlayerOption[]
+  onRename: (oldId: string, newName: string) => void
+  onRemap: (oldId: string, targetId: string, targetName: string) => void
+}) {
+  return (
+    <div className={`text-sm flex items-center gap-2 py-1 discard-row ${ineligible ? 'opacity-50' : 'text-gray-700'}`}>
+      <span className={`flex-1 ${ineligible ? 'line-through' : ''}`}>
+        #{entry.position} {entry.name} | Hole {entry.hole} | {entry.distance}
+      </span>
+      <PlayerMatchCell entry={entry} allPlayers={allPlayers} onRename={onRename} onRemap={onRemap} />
+      {ineligible && <span className="text-xs font-medium text-amber-600 shrink-0">Ineligible</span>}
+      {isWinner && <span className="text-xs font-medium text-green-600 shrink-0">Winner</span>}
+      <button
+        onClick={onDiscard}
+        title="Discard entry"
+        className="discard-btn text-gray-400 hover:text-red-500 transition-colors shrink-0"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  )
+}
+
+function ReviewLDRow({
+  entry,
+  ineligible,
+  isWinner,
+  onDiscard,
+  allPlayers,
+  onRename,
+  onRemap,
+}: {
+  entry: MatchedLDEntry
+  ineligible: boolean
+  isWinner: boolean
+  onDiscard: () => void
+  allPlayers: PlayerOption[]
+  onRename: (oldId: string, newName: string) => void
+  onRemap: (oldId: string, targetId: string, targetName: string) => void
+}) {
+  return (
+    <div className={`text-sm flex items-center gap-2 py-1 discard-row ${ineligible ? 'opacity-50' : 'text-gray-700'}`}>
+      <span className={`flex-1 ${ineligible ? 'line-through' : ''}`}>
+        #{entry.position} {entry.name} | Hole {entry.hole} | {entry.distance_yards}
+      </span>
+      <PlayerMatchCell entry={entry} allPlayers={allPlayers} onRename={onRename} onRemap={onRemap} />
+      {ineligible && <span className="text-xs font-medium text-amber-600 shrink-0">Ineligible</span>}
+      {isWinner && <span className="text-xs font-medium text-green-600 shrink-0">Winner</span>}
+      <button
+        onClick={onDiscard}
+        title="Discard entry"
+        className="discard-btn text-gray-400 hover:text-red-500 transition-colors shrink-0"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  )
+}
+
+type MatchedEntry = MatchedLeaderboardEntry | MatchedCTPEntry | MatchedLDEntry
+
+function PlayerMatchCell({
+  entry,
+  allPlayers,
+  onRename,
+  onRemap,
+}: {
+  entry: MatchedEntry
+  allPlayers: PlayerOption[]
+  onRename: (oldId: string, newName: string) => void
+  onRemap: (oldId: string, targetId: string, targetName: string) => void
+}) {
+  const [mode, setMode] = useState<'view' | 'rename' | 'remap'>('view')
+  const [renameVal, setRenameVal] = useState(entry.matched_name ?? '')
+  const [renameLoading, setRenameLoading] = useState(false)
+  const [renameError, setRenameError] = useState('')
+  const [remapFilter, setRemapFilter] = useState('')
+  const [remapLoading, setRemapLoading] = useState(false)
+  const [remapError, setRemapError] = useState('')
+
+  if (!entry.is_new_player) {
+    return <span className="text-green-600 text-xs">{entry.matched_name}</span>
+  }
+
+  async function doRename() {
+    if (!entry.matched_player_id) return
+    setRenameLoading(true)
+    setRenameError('')
+    try {
+      const res = await fetch('/api/rename-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_id: entry.matched_player_id, display_name: renameVal }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setRenameError(data.error ?? 'Failed to rename')
+        return
+      }
+      onRename(entry.matched_player_id, data.display_name)
+      setMode('view')
+    } finally {
+      setRenameLoading(false)
+    }
+  }
+
+  async function doRemap(targetId: string, targetName: string) {
+    if (!entry.matched_player_id) return
+    setRemapLoading(true)
+    setRemapError('')
+    try {
+      const res = await fetch('/api/remap-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_id: entry.matched_player_id }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setRemapError(data.error ?? 'Failed to remap')
+        return
+      }
+      onRemap(entry.matched_player_id, targetId, targetName)
+      setMode('view')
+    } finally {
+      setRemapLoading(false)
+    }
+  }
+
+  if (mode === 'rename') {
+    return (
+      <div className="flex items-center gap-1 flex-wrap">
+        <input
+          value={renameVal}
+          onChange={(e) => setRenameVal(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') doRename()
+            if (e.key === 'Escape') setMode('view')
+          }}
+          className="text-xs border border-gray-300 rounded px-2 py-1 w-32 focus:outline-none focus:border-amber-400"
+          autoFocus
+        />
+        <button
+          onClick={doRename}
+          disabled={renameLoading}
+          className="text-xs bg-amber-400 hover:bg-amber-500 text-black px-2 py-0.5 rounded disabled:opacity-50"
+        >
+          {renameLoading ? '…' : 'Save'}
+        </button>
+        <button onClick={() => setMode('view')} className="text-xs text-gray-400 hover:text-gray-600">
+          ✕
+        </button>
+        {renameError && <span className="text-xs text-red-500 w-full">{renameError}</span>}
+      </div>
+    )
+  }
+
+  if (mode === 'remap') {
+    const filtered = filterPlayers(allPlayers, remapFilter).slice(0, 8)
+    return (
+      <div className="relative">
+        <div className="flex items-center gap-1">
+          <input
+            value={remapFilter}
+            onChange={(e) => setRemapFilter(e.target.value)}
+            placeholder="Search player…"
+            className="text-xs border border-gray-300 rounded px-2 py-1 w-36 focus:outline-none focus:border-amber-400"
+            autoFocus
+          />
+          <button onClick={() => setMode('view')} className="text-xs text-gray-400 hover:text-gray-600">
+            ✕
+          </button>
+        </div>
+        {remapError && <span className="text-xs text-red-500 block mt-0.5">{remapError}</span>}
+        {filtered.length > 0 && (
+          <div className="absolute left-0 top-8 z-10 bg-white border border-gray-200 rounded-lg shadow-md w-48 max-h-44 overflow-y-auto">
+            {filtered.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => doRemap(p.id, p.display_name)}
+                disabled={remapLoading}
+                className="w-full text-left px-3 py-1.5 text-xs text-gray-700 hover:bg-amber-50 hover:text-amber-700 disabled:opacity-50 transition-colors"
+              >
+                {p.display_name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // mode === 'view' for new player
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <span className="text-xs font-medium bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">NEW</span>
+      <span className="text-xs text-gray-700">{entry.matched_name}</span>
+      <button
+        onClick={() => { setRenameVal(entry.matched_name ?? ''); setMode('rename') }}
+        className="text-xs text-blue-500 hover:text-blue-700 transition-colors"
+      >
+        Rename
+      </button>
+      <button
+        onClick={() => { setRemapFilter(''); setMode('remap') }}
+        className="text-xs text-purple-500 hover:text-purple-700 transition-colors"
+      >
+        Remap
+      </button>
+    </div>
   )
 }

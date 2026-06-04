@@ -70,7 +70,6 @@ export async function GET(req: NextRequest) {
       position: r.position,
       stableford_score: r.stableford_score,
       score_vs_par: r.score_vs_par,
-      thru: r.thru,
       ineligible_for_bonus: r.ineligible_for_bonus ?? false,
       bonus_points: bonusMap.get(r.player_id) ?? 0,
     })),

@@ -10,3 +10,9 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Discard buttons: hover-only reveal on pointer devices, always visible on touch */
+@media (hover: hover) {
+  .discard-btn { opacity: 0; transition: opacity 0.15s; }
+  .discard-row:hover .discard-btn { opacity: 1; }
+}

@@ -37,9 +37,8 @@ export interface Result {
   week_id: string
   player_id: string
   stableford_score: number
-  score_vs_par: number
-  position: number
-  thru: string
+  score_vs_par: number | null  // null for DNF
+  position: number | null      // null = DNF
   created_at: string
 }
 
@@ -113,7 +112,6 @@ export interface WeeklyResultRow {
   position: number | null
   stableford_score: number
   score_vs_par: number | null
-  thru: string
   ineligible_for_bonus: boolean
   bonus_points: number
 }
@@ -127,10 +125,11 @@ export interface SideContestDetail {
 // Parsed data from Claude Vision
 export interface ParsedLeaderboardEntry {
   name: string
-  position: number
-  stableford_score: number
-  score_vs_par: number
-  thru: string
+  position: number | null  // null for DNF
+  stableford_score: number  // 0 for DNF
+  score_vs_par: number | null  // null for DNF
+  dnf: boolean
+  // thru is extracted by Vision for DNF detection but never persisted
 }
 
 export interface ParsedCTPEntry {
@@ -178,4 +177,5 @@ export interface ConfirmWeekPayload {
   ld: MatchedLDEntry[]
   upload_ids: string[]
   ineligible_players?: string[]
+  dnf_players?: string[]
 }

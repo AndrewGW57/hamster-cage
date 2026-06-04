@@ -46,8 +46,15 @@ export async function parseLeaderboard(
   imageBase64: string
 ): Promise<ParsedLeaderboardEntry[]> {
   const prompt = `This is a Trackman golf leaderboard screenshot. Extract all player results as JSON.
-Return ONLY a JSON array, no other text. Each object:
-{ "name": string, "position": number, "stableford_score": number, "score_vs_par": number, "thru": string }`
+Return ONLY a JSON array, no other text.
+
+For players who FINISHED (THRU column shows "F"):
+{ "name": string, "position": number, "stableford_score": number, "score_vs_par": number, "thru": "F", "dnf": false }
+
+For players who DID NOT FINISH (position column shows "DNF", OR the THRU column shows a hole number like "9" or "11" instead of "F"):
+{ "name": string, "position": null, "stableford_score": 0, "score_vs_par": null, "thru": string, "dnf": true }
+
+DNF signals: "DNF" text where the finishing position would be, or THRU column showing a number instead of "F".`
 
   return callVision<ParsedLeaderboardEntry[]>(imageBase64, prompt)
 }

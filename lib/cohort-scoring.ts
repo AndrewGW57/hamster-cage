@@ -57,6 +57,8 @@ export async function getCohortLeaderboard(cohort_id: string): Promise<CohortLea
   const scoresByPlayer = new Map<string, number[]>()
   for (const r of results ?? []) {
     const arr = scoresByPlayer.get(r.player_id) ?? []
+    // DNF rounds are saved with stableford_score = 0. They count toward rounds_played
+    // and sort to the bottom of the best-N selection naturally (0 is always last when sorted desc).
     arr.push(r.stableford_score)
     scoresByPlayer.set(r.player_id, arr)
   }

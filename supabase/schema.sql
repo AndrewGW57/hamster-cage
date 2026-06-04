@@ -1,5 +1,19 @@
 -- Hamster Cage Order of Merit — Supabase Schema
 -- Run this in the Supabase SQL editor before first use.
+--
+-- =====================================================================
+-- APPLIED MIGRATIONS (ALTER statements run against the live database)
+-- The CREATE TABLE statements below reflect current target state.
+-- =====================================================================
+-- 2026-05-06  alter table results add column if not exists ineligible_for_bonus boolean not null default false;
+-- 2026-05-27  alter table results alter column position drop not null;
+-- 2026-05-27  alter table results alter column score_vs_par drop not null;
+-- 2026-05-27  alter table results add column if not exists created_at timestamptz not null default now();
+--             (created_at was in initial schema.sql but absent from live table; backfill sets now() for existing rows)
+-- 2026-06-04  players_display_name_key confirmed present in live DB (btree unique index on display_name).
+--             Constraint predates this schema file — origin unknown. Added unique to CREATE TABLE below to
+--             match live state. No migration needed; constraint already exists in all environments.
+-- =====================================================================
 
 -- Enable UUID extension
 create extension if not exists "pgcrypto";
@@ -7,7 +21,7 @@ create extension if not exists "pgcrypto";
 -- Players
 create table if not exists players (
   id uuid primary key default gen_random_uuid(),
-  display_name text not null,
+  display_name text not null unique,
   country_code text,                -- ISO 3166-1 alpha-2, e.g. 'gb', 'ae'
   created_at timestamptz not null default now()
 );
@@ -35,8 +49,9 @@ create table if not exists results (
   week_id uuid not null references weeks(id) on delete cascade,
   player_id uuid not null references players(id) on delete cascade,
   stableford_score integer not null,
-  score_vs_par integer not null,
-  position integer not null,
+  score_vs_par integer,
+  position integer,
+  ineligible_for_bonus boolean not null default false,
   created_at timestamptz not null default now(),
   unique (week_id, player_id)
 );
@@ -158,6 +173,7 @@ create policy "Public read bonus_points" on bonus_points for select using (true)
 -- Run in Supabase SQL editor:
 -- alter table results add column if not exists ineligible_for_bonus boolean not null default false;
 
--- 2026-05-06 — allow null position on results (DNF players)
+-- 2026-05-27 — allow null position and score_vs_par on results (DNF players score 0 with null position/vs-par)
 -- Run in Supabase SQL editor:
--- alter table results alter column position drop not null;
+alter table results alter column position drop not null;
+alter table results alter column score_vs_par drop not null;
