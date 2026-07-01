@@ -13,6 +13,8 @@
 -- 2026-06-04  players_display_name_key confirmed present in live DB (btree unique index on display_name).
 --             Constraint predates this schema file — origin unknown. Added unique to CREATE TABLE below to
 --             match live state. No migration needed; constraint already exists in all environments.
+-- 2026-06-17  alter table weeks drop constraint weeks_week_number_key;
+--             alter table weeks add constraint weeks_cohort_week_number_unique unique (cohort_id, week_number);
 -- =====================================================================
 
 -- Enable UUID extension
@@ -37,10 +39,11 @@ create table if not exists player_aliases (
 -- Weeks (one row per round played)
 create table if not exists weeks (
   id uuid primary key default gen_random_uuid(),
-  week_number integer not null unique,
+  week_number integer not null,
   course_name text not null,
   date date not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  unique (cohort_id, week_number)
 );
 
 -- Results (player score per week)
