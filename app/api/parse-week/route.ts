@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
-import { parseLeaderboard, parseCTP, parseLD } from '@/lib/parse-trackman'
+import { parseLeaderboard, parseCTP, parseLD, type ImageMediaType } from '@/lib/parse-trackman'
 import { matchPlayer } from '@/lib/match-player'
 import type {
   MatchedLeaderboardEntry,
@@ -8,6 +8,35 @@ import type {
   MatchedLDEntry,
   Player,
 } from '@/types'
+
+// Detects the real image format from magic bytes rather than trusting the
+// client-supplied File.type, which can be blank or wrong (e.g. some mobile
+// browsers omit it, or a file is renamed with a mismatched extension).
+function detectImageMediaType(buffer: Buffer, fallback: ImageMediaType): ImageMediaType {
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
+    return 'image/png'
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg'
+  }
+  if (buffer.length >= 4 && buffer.toString('ascii', 0, 4) === 'GIF8') {
+    return 'image/gif'
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString('ascii', 0, 4) === 'RIFF' &&
+    buffer.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'image/webp'
+  }
+  return fallback
+}
 
 export async function POST(req: NextRequest) {
   const db = createServiceClient()
@@ -58,18 +87,30 @@ export async function POST(req: NextRequest) {
 
     const timestamp = Date.now()
 
-    // Upload file to storage and return path + base64 in one pass
+    const VALID_MEDIA_TYPES: ImageMediaType[] = [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+    ]
+
+    // Upload file to storage and return path + base64 + detected media type in one pass
     async function processFile(
       file: File,
       name: string
-    ): Promise<{ path: string; base64: string }> {
+    ): Promise<{ path: string; base64: string; mediaType: ImageMediaType }> {
       const buffer = Buffer.from(await file.arrayBuffer())
-      const path = `${weekId}/${name}_${timestamp}.png`
+      const clientType = VALID_MEDIA_TYPES.includes(file.type as ImageMediaType)
+        ? (file.type as ImageMediaType)
+        : 'image/jpeg'
+      const mediaType = detectImageMediaType(buffer, clientType)
+      const ext = mediaType.split('/')[1]
+      const path = `${weekId}/${name}_${timestamp}.${ext}`
       const { error } = await db.storage
         .from('trackman-uploads')
-        .upload(path, buffer, { upsert: true, contentType: file.type || 'image/png' })
+        .upload(path, buffer, { upsert: true, contentType: mediaType })
       if (error) throw new Error(`Storage upload failed (${name}): ${error.message}`)
-      return { path, base64: buffer.toString('base64') }
+      return { path, base64: buffer.toString('base64'), mediaType }
     }
 
     const [lb, ctp, ld] = await Promise.all([
@@ -91,9 +132,9 @@ export async function POST(req: NextRequest) {
 
     // Parse all three images with Claude Vision
     const [parsedLB, parsedCTP, parsedLD] = await Promise.all([
-      parseLeaderboard(lb.base64),
-      parseCTP(ctp.base64),
-      parseLD(ld.base64),
+      parseLeaderboard(lb.base64, lb.mediaType),
+      parseCTP(ctp.base64, ctp.mediaType),
+      parseLD(ld.base64, ld.mediaType),
     ])
 
     // Fetch players + aliases for name matching
