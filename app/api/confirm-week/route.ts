@@ -87,17 +87,16 @@ export async function POST(req: NextRequest) {
       if (ldWinner) {
         bonusRows.push({ week_id, player_id: ldWinner.matched_player_id!, cohort_id: cohortId, bonus_type: 'ld', points: 2 })
       }
-      for (const entry of leaderboard) {
-        if (
-          !dnfSet.has(entry.matched_player_id ?? '') &&
-          entry.position != null &&
-          entry.position >= 1 &&
-          entry.position <= 10 &&
-          entry.matched_player_id &&
-          !ineligibleSet.has(entry.matched_player_id ?? '')
-        ) {
-          bonusRows.push({ week_id, player_id: entry.matched_player_id, cohort_id: cohortId, bonus_type: 'top10', points: 1 })
-        }
+      const eligibleEntries = leaderboard
+        .filter(e =>
+          e.matched_player_id &&
+          !dnfSet.has(e.matched_player_id) &&
+          !ineligibleSet.has(e.matched_player_id) &&
+          e.position != null
+        )
+        .sort((a, b) => (a.position ?? 999) - (b.position ?? 999))
+      for (const entry of eligibleEntries.slice(0, 10)) {
+        bonusRows.push({ week_id, player_id: entry.matched_player_id!, cohort_id: cohortId, bonus_type: 'top10', points: 1 })
       }
 
       if (bonusRows.length > 0) {
