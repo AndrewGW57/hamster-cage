@@ -16,6 +16,7 @@ interface WeekOption {
   week_number: number
   course_name: string
   date: string
+  is_bye: boolean
   cohort_id: string | null
 }
 
@@ -78,7 +79,7 @@ export default function AdminPage() {
 
   async function loadWeeksAndCohorts() {
     const [{ data: weeksData }, { data: cohortsData }] = await Promise.all([
-      supabase.from('weeks').select('id, week_number, course_name, date, cohort_id').order('date'),
+      supabase.from('weeks').select('id, week_number, course_name, date, is_bye, cohort_id').order('date'),
       supabase.from('cohorts').select('id, name, status').order('created_at'),
     ])
     setWeeks(weeksData ?? [])
@@ -430,6 +431,7 @@ export default function AdminPage() {
                 {filteredWeeks.map((w) => (
                   <option key={w.id} value={w.id}>
                     Week {w.localWeekNumber} — {w.course_name} ({w.date})
+                    {w.is_bye ? ' (Bye)' : ''}
                   </option>
                 ))}
               </select>

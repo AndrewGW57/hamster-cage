@@ -3,6 +3,7 @@ import { MapPin } from 'lucide-react'
 import { notFound, redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase'
 import { getCohortLeaderboard } from '@/lib/cohort-scoring'
+import { findNextWeek } from '@/lib/next-week'
 import { CohortLeaderboardTable } from '@/components/CohortLeaderboardTable'
 import { AdminButton } from '@/components/AdminButton'
 import type { CohortLeaderboardRow } from '@/lib/cohort-scoring'
@@ -16,6 +17,7 @@ export interface CohortWeek {
   local_week_number: number
   course_name: string
   date: string
+  is_bye: boolean
 }
 
 export type WeeklyScoreMap = Record<
@@ -44,7 +46,7 @@ export default async function CohortPage({
 
   const { data: weeksRaw } = await db
     .from('weeks')
-    .select('id, week_number, course_name, date')
+    .select('id, week_number, course_name, date, is_bye')
     .eq('cohort_id', cohortId)
     .order('week_number')
 
@@ -74,9 +76,9 @@ export default async function CohortPage({
         ])
       : [{ data: [] }, { data: [] }, { data: [] }]
 
-  // Next upcoming week (exists in weeks table but has no results)
+  // Next upcoming week (no results yet, and not a bye)
   const weeksWithResults = new Set((resultsRaw ?? []).map((r) => r.week_id))
-  const nextWeek = weeks.find((w) => !weeksWithResults.has(w.id)) ?? null
+  const nextWeek = findNextWeek(weeks, weeksWithResults)
 
   // Build weekly score map
   const weeklyScoreMap: WeeklyScoreMap = {}

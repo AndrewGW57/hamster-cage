@@ -164,8 +164,23 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
           </button>
         </div>
 
+        {/* Bye week — replaces the results table entirely */}
+        {week.is_bye && (
+          <div className="p-4">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-6 text-center">
+              <div className="inline-block px-2 py-1 text-xs font-semibold rounded bg-gray-200 text-gray-600 tracking-wide mb-2">
+                BYE WEEK
+              </div>
+              <p className="text-sm text-gray-600">Round voided for all players.</p>
+              <p className="text-xs text-gray-400 mt-1">
+                No scores were recorded, and this week does not count toward anyone&apos;s total.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Course chooser */}
-        {detail.course_chooser && (
+        {!week.is_bye && detail.course_chooser && (
           <div className="px-3 sm:px-4 pt-3 pb-0">
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs sm:text-sm font-medium text-amber-700">
               🏌️ {detail.course_chooser}{' '}chooses next week&apos;s course
@@ -174,6 +189,7 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
         )}
 
         {/* Results table */}
+        {!week.is_bye && (
         <div className="p-4">
           <table className="w-full text-sm">
             <thead>
@@ -247,9 +263,10 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
             </tbody>
           </table>
         </div>
+        )}
 
         {/* Side contests */}
-        {(ctp || ld) && (
+        {!week.is_bye && (ctp || ld) && (
           <div className="grid grid-cols-2 gap-3 px-4 pb-4">
             {ctp && (
               <ContestCard

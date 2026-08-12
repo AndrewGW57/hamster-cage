@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { PlayerFlag } from './PlayerFlag'
 import { WeeklyDetailModal } from './WeeklyDetailModal'
+import { countPlayableWeeks } from '@/lib/next-week'
 import type { CohortLeaderboardRow } from '@/lib/cohort-scoring'
 import type { Cohort, WeeklyDetail } from '@/types'
 import type { CohortWeek, WeeklyScoreMap, BonusDetailMap } from '@/app/cohort/[id]/page'
@@ -149,7 +150,7 @@ export function CohortLeaderboardTable({
           </div>
         )}
         <p className="text-sm text-gray-500">
-          Best {cohort.scores_to_count} of {weeks.length} rounds · Bonus points included
+          Best {cohort.scores_to_count} of {countPlayableWeeks(weeks)} rounds · Bonus points included
         </p>
       </div>
 
@@ -191,15 +192,26 @@ export function CohortLeaderboardTable({
               {slots.map((slot) => (
                 <th
                   key={slot.localWeekNumber}
-                  className={`py-3 px-1 w-10 sm:w-14 text-center font-mono whitespace-nowrap ${
+                  className={`py-3 px-1 w-10 sm:w-14 text-center font-mono whitespace-nowrap align-bottom ${
                     slot.week
                       ? 'cursor-pointer hover:text-amber-500 transition-colors'
                       : 'text-gray-300'
                   }`}
-                  title={slot.week ? `${slot.week.course_name} · ${slot.week.date}` : undefined}
+                  title={
+                    slot.week
+                      ? `${slot.week.course_name} · ${slot.week.date}${
+                          slot.week.is_bye ? ' · Bye week — round voided for all players' : ''
+                        }`
+                      : undefined
+                  }
                   onClick={() => slot.week && handleWeekClick(slot.week.id)}
                 >
                   Wk {slot.localWeekNumber}
+                  {slot.week?.is_bye && (
+                    <span className="block mt-1 mx-auto px-1 py-0.5 text-[9px] font-sans font-semibold leading-none rounded bg-gray-200 text-gray-600 tracking-wide">
+                      BYE
+                    </span>
+                  )}
                 </th>
               ))}
             </tr>
@@ -292,12 +304,19 @@ function PlayerRows({
         </td>
         {slots.map((slot) => {
           const ws = slot.week ? weeklyScoreMap[row.player_id]?.[slot.week.id] : null
+          const isBye = slot.week?.is_bye ?? false
           return (
             <td
               key={slot.localWeekNumber}
-              className="py-2.5 px-1 text-center font-mono text-[#111111] w-10 sm:w-14 whitespace-nowrap"
+              className={`py-2.5 px-1 text-center font-mono text-[#111111] w-10 sm:w-14 whitespace-nowrap ${
+                isBye ? 'bg-gray-50' : ''
+              }`}
+              title={isBye ? 'Bye week — round voided for all players' : undefined}
             >
-              {ws ? (
+              {isBye ? (
+                // Distinct from the '–' used for a week a player simply missed.
+                <span className="text-[#9ca3af] text-[10px] font-sans tracking-wide">BYE</span>
+              ) : ws ? (
                 <>
                   {ws.stableford_score}
                   {ws.has_ctp && <span className="ml-0.5 text-xs">📍</span>}

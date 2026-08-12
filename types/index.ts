@@ -28,6 +28,7 @@ export interface Week {
   week_number: number
   course_name: string
   date: string
+  is_bye: boolean
   cohort_id: string | null
   created_at: string
 }

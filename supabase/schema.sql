@@ -15,6 +15,10 @@
 --             match live state. No migration needed; constraint already exists in all environments.
 -- 2026-06-17  alter table weeks drop constraint weeks_week_number_key;
 --             alter table weeks add constraint weeks_cohort_week_number_unique unique (cohort_id, week_number);
+-- 2026-08-12  alter table weeks add column if not exists is_bye boolean not null default false;
+--             update weeks set is_bye = true where id = 'a03d393a-19fd-4340-a0d0-ae86d022b26e';
+--             (Summer 2026 Week 5, Wentworth West, 2026-07-22 — Trackman malfunction forced a full
+--              replay, so zero scores were recorded. The week is voided for every player, not skipped.)
 -- =====================================================================
 
 -- Enable UUID extension
@@ -37,13 +41,17 @@ create table if not exists player_aliases (
 );
 
 -- Weeks (one row per round played)
+-- NOTE: cohort_id and the (cohort_id, week_number) unique constraint are added in the
+-- "Cohort migration" section below — cohorts does not exist yet at this point in the file.
 create table if not exists weeks (
   id uuid primary key default gen_random_uuid(),
   week_number integer not null,
   course_name text not null,
   date date not null,
-  created_at timestamptz not null default now(),
-  unique (cohort_id, week_number)
+  -- A bye week: scheduled and numbered, but voided for every player (e.g. a Trackman
+  -- malfunction forcing a full replay). Treated as COMPLETE, never as upcoming.
+  is_bye boolean not null default false,
+  created_at timestamptz not null default now()
 );
 
 -- Results (player score per week)
@@ -117,6 +125,10 @@ create table cohorts (
 
 alter table weeks add column cohort_id uuid references cohorts(id);
 
+-- Week numbers are unique per cohort, not globally (replaced weeks_week_number_key 2026-06-17).
+-- Must come after cohort_id exists — see the note on create table weeks above.
+alter table weeks add constraint weeks_cohort_week_number_unique unique (cohort_id, week_number);
+
 alter table players add column ld_handicap_yards int not null default 0;
 
 create table bonus_points (
@@ -180,3 +192,11 @@ create policy "Public read bonus_points" on bonus_points for select using (true)
 -- Run in Supabase SQL editor:
 alter table results alter column position drop not null;
 alter table results alter column score_vs_par drop not null;
+
+-- 2026-08-12 — bye weeks (voided rounds that must not read as "upcoming")
+-- Run in Supabase SQL editor:
+alter table weeks add column if not exists is_bye boolean not null default false;
+
+-- Summer 2026 (a9fba9af-fd55-4381-a7c2-65d961bcd46b) Week 5 — Wentworth West, 2026-07-22.
+-- Trackman malfunction forced a full replay; zero scores recorded for anyone.
+update weeks set is_bye = true where id = 'a03d393a-19fd-4340-a0d0-ae86d022b26e';

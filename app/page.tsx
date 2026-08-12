@@ -2,6 +2,7 @@ import Image from 'next/image'
 import { MapPin } from 'lucide-react'
 import { createServiceClient } from '@/lib/supabase'
 import { getCohortLeaderboard, type CohortLeaderboardRow } from '@/lib/cohort-scoring'
+import { findNextWeek } from '@/lib/next-week'
 import { CohortLeaderboardTable } from '@/components/CohortLeaderboardTable'
 import { AdminButton } from '@/components/AdminButton'
 import type { Cohort } from '@/types'
@@ -15,7 +16,7 @@ export default async function HomePage() {
   // Round 1: shape data needed to scope result fetches
   const [{ data: cohortsRaw }, { data: weeksRaw }] = await Promise.all([
     db.from('cohorts').select('*').order('created_at'),
-    db.from('weeks').select('id, week_number, course_name, date, cohort_id').order('week_number'),
+    db.from('weeks').select('id, week_number, course_name, date, is_bye, cohort_id').order('week_number'),
   ])
 
   const cohortsAll: Cohort[] = (cohortsRaw ?? []) as Cohort[]
@@ -72,9 +73,9 @@ export default async function HomePage() {
     }
   }
 
-  // Next upcoming week (exists in weeks table but has no results)
+  // Next upcoming week (no results yet, and not a bye)
   const weeksWithResults = new Set(resultsRaw.map((r) => r.week_id))
-  const nextWeek = activeCohortWeeks.find((w) => !weeksWithResults.has(w.id)) ?? null
+  const nextWeek = findNextWeek(activeCohortWeeks, weeksWithResults)
 
   // Bonus detail map
   const bonusDetailMap: BonusDetailMap = {}
