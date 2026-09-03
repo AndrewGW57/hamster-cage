@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 export function RulesEditor({ initialNotes }: { initialNotes: string }) {
   const [isAdmin, setIsAdmin] = useState(false)
@@ -9,6 +9,7 @@ export function RulesEditor({ initialNotes }: { initialNotes: string }) {
   const [draft, setDraft] = useState(initialNotes)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     try {
@@ -18,6 +19,19 @@ export function RulesEditor({ initialNotes }: { initialNotes: string }) {
       if (session?.authenticated) setIsAdmin(true)
     } catch {}
   }, [])
+
+  // Deep link from the admin page ("Edit Rules") drops you straight into
+  // edit mode instead of making you find the Edit button yourself.
+  useEffect(() => {
+    if (!isAdmin) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('editRules') === '1') {
+      setDraft(notes)
+      setEditing(true)
+      containerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin])
 
   async function handleSave() {
     setSaving(true)
@@ -40,7 +54,7 @@ export function RulesEditor({ initialNotes }: { initialNotes: string }) {
   if (!notes && !isAdmin) return null
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+    <div ref={containerRef} className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-semibold text-amber-600 uppercase tracking-wider">
           Additional Notes

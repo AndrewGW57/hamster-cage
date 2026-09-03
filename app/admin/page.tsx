@@ -506,6 +506,13 @@ export default function AdminPage() {
           <PlayerManagement />
           <CohortManagement />
           <AdminManagement />
+          <a
+            href="/rules?editRules=1"
+            className="mt-8 flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors border border-gray-200 rounded-xl"
+          >
+            <span className="text-sm font-semibold text-gray-700">Edit Rules</span>
+            <span className="text-gray-400 text-sm">&rarr;</span>
+          </a>
         </div>
       </div>
     )
