@@ -104,6 +104,12 @@ export interface WeeklyDetail {
   ctp_full_list: CtpFullEntry[] | null
   ld_full_list: LdFullEntry[] | null
   course_chooser?: string | null
+  // Curveball Weeks rule (weeks 3, 6, 9, 12) — see lib/rules.ts.
+  is_curveball?: boolean
+  // True when the automatic Max 40 winner determination couldn't fully resolve a
+  // tie (no hole-by-hole scores exist to run a real countback). When true, every
+  // player in `results` with is_weekly_winner set shared the win/bonus point.
+  winner_tied?: boolean
 }
 
 export interface WeeklyResultRow {
@@ -115,6 +121,10 @@ export interface WeeklyResultRow {
   score_vs_par: number | null
   ineligible_for_bonus: boolean
   bonus_points: number
+  // Max 40 rule: highest CAPPED score this week (ties broken by lowest gross, see lib/weekly-winner.ts).
+  is_weekly_winner: boolean
+  // Lowest score this week among bonus-eligible players.
+  is_wooden_spoon: boolean
 }
 
 export interface SideContestDetail {
@@ -179,4 +189,7 @@ export interface ConfirmWeekPayload {
   upload_ids: string[]
   ineligible_players?: string[]
   dnf_players?: string[]
+  // Admin's manual pick when Trackman itself couldn't break a weekly-winner tie
+  // (see lib/weekly-winner.ts) — only used when that tie actually occurs.
+  manual_winner_player_id?: string | null
 }

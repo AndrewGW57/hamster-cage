@@ -4,6 +4,7 @@ import { notFound, redirect } from 'next/navigation'
 import { createServiceClient } from '@/lib/supabase'
 import { getCohortLeaderboard } from '@/lib/cohort-scoring'
 import { findNextWeek } from '@/lib/next-week'
+import { determineWeeklyWinner, determineWoodenSpoon } from '@/lib/weekly-winner'
 import { CohortLeaderboardTable } from '@/components/CohortLeaderboardTable'
 import { AdminButton } from '@/components/AdminButton'
 import type { CohortLeaderboardRow } from '@/lib/cohort-scoring'
@@ -22,10 +23,16 @@ export interface CohortWeek {
 
 export type WeeklyScoreMap = Record<
   string,
-  Record<string, { stableford_score: number; has_ctp: boolean; has_ld: boolean }>
+  Record<string, {
+    stableford_score: number
+    has_ctp: boolean
+    has_ld: boolean
+    has_winner: boolean
+    has_wooden_spoon: boolean
+  }>
 >
 
-export type BonusDetail = { ctp: number[]; ld: number[]; top10: number[] }
+export type BonusDetail = { ctp: number[]; ld: number[]; top10: number[]; winner: number[] }
 export type BonusDetailMap = Record<string, BonusDetail>
 
 export default async function CohortPage({
@@ -63,7 +70,7 @@ export default async function CohortPage({
       ? await Promise.all([
           db
             .from('results')
-            .select('week_id, player_id, stableford_score, position')
+            .select('week_id, player_id, stableford_score, score_vs_par, position, ineligible_for_bonus')
             .in('week_id', weekIds),
           db
             .from('side_contests')
@@ -88,6 +95,8 @@ export default async function CohortPage({
       stableford_score: r.stableford_score,
       has_ctp: false,
       has_ld: false,
+      has_winner: false,
+      has_wooden_spoon: false,
     }
   }
   for (const c of contestsRaw ?? []) {
@@ -98,13 +107,40 @@ export default async function CohortPage({
     }
   }
 
+  // Weekly winner / Wooden Spoon per week — Max 40 rule (see lib/weekly-winner.ts).
+  const resultsByWeek = new Map<string, typeof resultsRaw>()
+  for (const r of resultsRaw ?? []) {
+    const arr = resultsByWeek.get(r.week_id) ?? []
+    arr.push(r)
+    resultsByWeek.set(r.week_id, arr)
+  }
+  for (const [wId, weekResults] of resultsByWeek) {
+    const forRules = (weekResults ?? []).map((r) => ({
+      player_id: r.player_id,
+      stableford_score: r.stableford_score,
+      score_vs_par: r.score_vs_par,
+      position: r.position,
+      ineligible_for_bonus: r.ineligible_for_bonus ?? false,
+    }))
+    const winner = determineWeeklyWinner(forRules)
+    const spoon = determineWoodenSpoon(forRules)
+    for (const pid of winner.winnerIds) {
+      const entry = weeklyScoreMap[pid]?.[wId]
+      if (entry) entry.has_winner = true
+    }
+    for (const pid of spoon.spoonIds) {
+      const entry = weeklyScoreMap[pid]?.[wId]
+      if (entry) entry.has_wooden_spoon = true
+    }
+  }
+
   // Build bonus detail map (local week numbers per bonus type)
   const bonusDetailMap: BonusDetailMap = {}
   for (const b of bonusRaw ?? []) {
     const localWk = weekIdToLocal.get(b.week_id)
     if (localWk === undefined) continue
     if (!bonusDetailMap[b.player_id]) {
-      bonusDetailMap[b.player_id] = { ctp: [], ld: [], top10: [] }
+      bonusDetailMap[b.player_id] = { ctp: [], ld: [], top10: [], winner: [] }
     }
     bonusDetailMap[b.player_id][b.bonus_type as keyof BonusDetail].push(localWk)
   }

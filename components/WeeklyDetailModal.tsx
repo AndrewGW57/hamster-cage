@@ -151,6 +151,14 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
           <div>
             <h2 className="text-lg font-bold text-amber-500 flex items-center gap-2">
               Week {week.week_number}
+              {detail.is_curveball && (
+                <span
+                  className="px-1.5 py-0.5 text-xs font-semibold rounded bg-purple-100 text-purple-700 align-middle"
+                  title="Curveball Week"
+                >
+                  🎲 Curveball
+                </span>
+              )}
               <span className="text-gray-300 font-normal">·</span>
               <span className="text-gray-500 font-normal text-base">{formatDate(week.date)}</span>
             </h2>
@@ -179,11 +187,18 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
           </div>
         )}
 
-        {/* Course chooser */}
+        {/* Weekly winner / course chooser */}
         {!week.is_bye && detail.course_chooser && (
           <div className="px-3 sm:px-4 pt-3 pb-0">
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs sm:text-sm font-medium text-amber-700">
-              🏌️ {detail.course_chooser}{' '}chooses next week&apos;s course
+              🏆 {detail.course_chooser} wins the week (+{detail.is_curveball ? 2 : 1} pt{detail.is_curveball ? 's' : ''}) and chooses next week&apos;s course
+            </div>
+          </div>
+        )}
+        {!week.is_bye && !detail.course_chooser && detail.winner_tied && (
+          <div className="px-3 sm:px-4 pt-3 pb-0">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs sm:text-sm font-medium text-gray-600">
+              🏆 Weekly winner is tied — needs a manual countback to settle (see 🏆 marks below). Everyone shown has been credited for now.
             </div>
           </div>
         )}
@@ -218,14 +233,27 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
                     {r.ineligible_for_bonus && (
                       <span className="ml-1.5 px-1 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-700 align-middle"><span className="sm:hidden">PM</span><span className="hidden sm:inline">Ineligible for Bonus</span></span>
                     )}
+                    {r.is_weekly_winner && (
+                      <span className="ml-1.5 text-sm align-middle" title="Weekly winner">🏆</span>
+                    )}
                     {ctpWinner && r.display_name === ctpWinner && (
                       <Image src="/ctp-icon.png" alt="CTP" height={20} width={20} style={{ display: 'inline', marginLeft: '6px' }} />
                     )}
                     {ldWinner && r.display_name === ldWinner && (
                       <Image src="/ld-icon.png" alt="LD" height={20} width={20} style={{ display: 'inline', marginLeft: '6px' }} />
                     )}
+                    {r.is_wooden_spoon && (
+                      <Image src="/wooden-spoon-icon.png" alt="Wooden Spoon" height={20} width={20} style={{ display: 'inline', marginLeft: '6px' }} />
+                    )}
                   </td>
-                  <td className="py-2 text-center font-mono text-amber-600 font-semibold">{r.stableford_score}</td>
+                  <td className="py-2 text-center font-mono text-amber-600 font-semibold">
+                    {r.stableford_score}
+                    {r.stableford_score > 40 && (
+                      <span className="block text-[10px] font-sans font-normal text-gray-400 leading-tight" title="Max 40 — this is what counts toward the season total">
+                        40 in the books
+                      </span>
+                    )}
+                  </td>
                   <td className="py-2 text-center font-mono text-[#9ca3af]">
                     {r.ineligible_for_bonus || r.bonus_points === 0 ? '–' : `+${r.bonus_points}`}
                   </td>

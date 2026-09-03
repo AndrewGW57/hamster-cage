@@ -151,11 +151,27 @@ export default async function RulesPage() {
                 .
               </p>
             )}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 leading-relaxed mb-3">
+              <strong>Max 40:</strong> the most points that count toward your total in any single
+              week is 40. Score higher and it is very well played, but 40 is what goes into the
+              books. If two or more players are tied on 40 or more, the weekly winner is whoever
+              has the lowest gross score. Ties below 40 points go to standard countback: back 9,
+              back 6, back 3.
+            </div>
+            <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 text-sm text-purple-800 leading-relaxed mb-3">
+              <strong>🎲 Curveball Weeks:</strong> weeks 3, 6, 9 and 12 of each cohort throw
+              something different into the mix — smaller gimmies, faster greens, longer tees or
+              more wind. At least one of your counting scores for the season must come from a
+              Curveball week. If it doesn&apos;t happen naturally, your weakest counting round is
+              swapped for your best Curveball round instead, even if that lowers your total. Never
+              posted a Curveball score at all? You simply count one fewer round for the season.
+            </div>
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 leading-relaxed">
               If you play outside of the normal Hamster Cage hours (i.e. NOT the morning!), you can
-              earn your Stableford points but you are not eligible for any bonus points: Top 10,
-              Closest to the Pin or Longest Drive. If, by chance, you ended up in first place on
-              the Leaderboard, you will not get to choose the next week&apos;s course.
+              earn your Stableford points but you are not eligible for any bonus points: Making the
+              Crop, Closest to the Pin, Longest Drive or the Weekly winner bonus. If, by chance, you
+              ended up in first place on the Leaderboard, you will not get to choose the next
+              week&apos;s course either.
             </div>
           </div>
 
@@ -174,17 +190,22 @@ export default async function RulesPage() {
               </thead>
               <tbody>
                 <tr className="border-b border-gray-100">
-                  <td className="py-2 font-medium text-gray-800">Closest to Pin</td>
-                  <td className="py-2 text-gray-500">Weekly winner</td>
+                  <td className="py-2 font-medium text-gray-800">🏆 Weekly Stableford winner</td>
+                  <td className="py-2 text-gray-500">Per week (2 on Curveball weeks)</td>
+                  <td className="py-2 text-right font-mono font-semibold text-amber-600">+1 / +2</td>
+                </tr>
+                <tr className="border-b border-gray-100">
+                  <td className="py-2 font-medium text-gray-800">📍 Closest to Pin</td>
+                  <td className="py-2 text-gray-500">Per week</td>
                   <td className="py-2 text-right font-mono font-semibold text-amber-600">+2</td>
                 </tr>
                 <tr className="border-b border-gray-100">
-                  <td className="py-2 font-medium text-gray-800">Longest Drive</td>
-                  <td className="py-2 text-gray-500">Weekly winner</td>
+                  <td className="py-2 font-medium text-gray-800">🏌️ Longest Drive</td>
+                  <td className="py-2 text-gray-500">Per week</td>
                   <td className="py-2 text-right font-mono font-semibold text-amber-600">+2</td>
                 </tr>
                 <tr>
-                  <td className="py-2 font-medium text-gray-800">Top 10 finish</td>
+                  <td className="py-2 font-medium text-gray-800">Making the Crop (Top 10)</td>
                   <td className="py-2 text-gray-500">Per week</td>
                   <td className="py-2 text-right font-mono font-semibold text-amber-600">+1</td>
                 </tr>
@@ -193,6 +214,14 @@ export default async function RulesPage() {
             <ul className="space-y-1 text-sm text-gray-600 list-disc list-inside">
               <li>Bonus points are cumulative across all weeks in the cohort.</li>
               <li>You do not need to play every week to qualify.</li>
+              <li>
+                Every bonus point banks toward your season total regardless of whether that
+                week&apos;s Stableford score ends up being one of your counting rounds.
+              </li>
+              <li>
+                🥄 Wooden Spoon marks the lowest score of the week on the leaderboard grid — a badge
+                of shame only, it carries no points.
+              </li>
             </ul>
           </div>
 

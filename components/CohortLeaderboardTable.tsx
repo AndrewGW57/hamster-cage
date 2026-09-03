@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { PlayerFlag } from './PlayerFlag'
 import { WeeklyDetailModal } from './WeeklyDetailModal'
 import { countPlayableWeeks } from '@/lib/next-week'
+import { isCurveballWeek } from '@/lib/rules'
 import type { CohortLeaderboardRow } from '@/lib/cohort-scoring'
 import type { Cohort, WeeklyDetail } from '@/types'
 import type { CohortWeek, WeeklyScoreMap, BonusDetailMap } from '@/app/cohort/[id]/page'
@@ -189,31 +190,37 @@ export function CohortLeaderboardTable({
               </th>
               <th className="py-3 px-2 w-16 text-center font-mono whitespace-nowrap">Bonus</th>
               <th className="py-3 px-2 w-16 text-center font-mono whitespace-nowrap">Total</th>
-              {slots.map((slot) => (
-                <th
-                  key={slot.localWeekNumber}
-                  className={`py-3 px-1 w-10 sm:w-14 text-center font-mono whitespace-nowrap align-bottom ${
-                    slot.week
-                      ? 'cursor-pointer hover:text-amber-500 transition-colors'
-                      : 'text-gray-300'
-                  }`}
-                  title={
-                    slot.week
-                      ? `${slot.week.course_name} · ${slot.week.date}${
-                          slot.week.is_bye ? ' · Bye week — round voided for all players' : ''
-                        }`
-                      : undefined
-                  }
-                  onClick={() => slot.week && handleWeekClick(slot.week.id)}
-                >
-                  Wk {slot.localWeekNumber}
-                  {slot.week?.is_bye && (
-                    <span className="block mt-1 mx-auto px-1 py-0.5 text-[9px] font-sans font-semibold leading-none rounded bg-gray-200 text-gray-600 tracking-wide">
-                      BYE
-                    </span>
-                  )}
-                </th>
-              ))}
+              {slots.map((slot) => {
+                const curveball = isCurveballWeek(slot.localWeekNumber)
+                return (
+                  <th
+                    key={slot.localWeekNumber}
+                    className={`py-3 px-1 w-10 sm:w-14 text-center font-mono whitespace-nowrap align-bottom ${
+                      slot.week
+                        ? 'cursor-pointer hover:text-amber-500 transition-colors'
+                        : 'text-gray-300'
+                    }`}
+                    title={
+                      slot.week
+                        ? `${slot.week.course_name} · ${slot.week.date}${
+                            slot.week.is_bye ? ' · Bye week — round voided for all players' : ''
+                          }${curveball ? ' · Curveball Week' : ''}`
+                        : curveball
+                        ? 'Curveball Week'
+                        : undefined
+                    }
+                    onClick={() => slot.week && handleWeekClick(slot.week.id)}
+                  >
+                    Wk {slot.localWeekNumber}
+                    {curveball && <span className="ml-0.5">🎲</span>}
+                    {slot.week?.is_bye && (
+                      <span className="block mt-1 mx-auto px-1 py-0.5 text-[9px] font-sans font-semibold leading-none rounded bg-gray-200 text-gray-600 tracking-wide">
+                        BYE
+                      </span>
+                    )}
+                  </th>
+                )
+              })}
             </tr>
           </thead>
 
@@ -295,6 +302,14 @@ function PlayerRows({
         <td className="py-2.5 px-2 text-center font-mono text-[#111111]">{row.rounds_played}</td>
         <td className="py-2.5 px-2 text-center font-mono text-amber-600">
           {row.stableford_total || <span className="text-[#9ca3af]">–</span>}
+          {row.no_curveball_score && row.counted_weeks > 0 && (
+            <span
+              className="block text-[9px] font-sans font-normal text-gray-400 leading-tight"
+              title="No Curveball week (3, 6, 9 or 12) posted yet — counts one fewer round until you play one"
+            >
+              {row.counted_weeks} rnds
+            </span>
+          )}
         </td>
         <td className="py-2.5 px-2 text-center font-mono text-[#111111]">
           {row.bonus_total > 0 ? row.bonus_total : <span className="text-[#9ca3af]">–</span>}
@@ -319,8 +334,10 @@ function PlayerRows({
               ) : ws ? (
                 <>
                   {ws.stableford_score}
-                  {ws.has_ctp && <span className="ml-0.5 text-xs">📍</span>}
-                  {ws.has_ld && <span className="ml-0.5 text-xs">🏌️</span>}
+                  {ws.has_winner && <span className="ml-0.5 text-xs" title="Weekly winner">🏆</span>}
+                  {ws.has_ctp && <span className="ml-0.5 text-xs" title="Closest to Pin">📍</span>}
+                  {ws.has_ld && <span className="ml-0.5 text-xs" title="Longest Drive">🏌️</span>}
+                  {ws.has_wooden_spoon && <span className="ml-0.5 text-xs" title="Wooden Spoon">🥄</span>}
                 </>
               ) : (
                 <span className="text-[#9ca3af]">–</span>

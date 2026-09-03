@@ -19,6 +19,12 @@
 --             update weeks set is_bye = true where id = 'a03d393a-19fd-4340-a0d0-ae86d022b26e';
 --             (Summer 2026 Week 5, Wentworth West, 2026-07-22 — Trackman malfunction forced a full
 --              replay, so zero scores were recorded. The week is voided for every player, not skipped.)
+-- 2026-09-03  alter table bonus_points drop constraint bonus_points_bonus_type_check;
+--             alter table bonus_points add constraint bonus_points_bonus_type_check
+--               check (bonus_type in ('ctp', 'ld', 'top10', 'winner'));
+--             ('winner' = Weekly Stableford winner bonus: 1 point, 2 on Curveball weeks 3/6/9/12.
+--              Max 40, Curveball Weeks, and Wooden Spoon are otherwise computed at read time —
+--              see lib/rules.ts and lib/weekly-winner.ts — and need no other schema change.)
 -- =====================================================================
 
 -- Enable UUID extension
@@ -136,7 +142,7 @@ create table bonus_points (
   week_id uuid not null references weeks(id) on delete cascade,
   player_id uuid not null references players(id) on delete cascade,
   cohort_id uuid not null references cohorts(id) on delete cascade,
-  bonus_type text not null check (bonus_type in ('ctp', 'ld', 'top10')),
+  bonus_type text not null check (bonus_type in ('ctp', 'ld', 'top10', 'winner')),
   points int not null default 0,
   unique(week_id, player_id, bonus_type)
 );
@@ -196,6 +202,12 @@ alter table results alter column score_vs_par drop not null;
 -- 2026-08-12 — bye weeks (voided rounds that must not read as "upcoming")
 -- Run in Supabase SQL editor:
 alter table weeks add column if not exists is_bye boolean not null default false;
+
+-- 2026-09-03 — 'winner' bonus_type (Weekly Stableford winner bonus, part of the Max 40 /
+-- Curveball Weeks / Wooden Spoon rule set). Run in Supabase SQL editor:
+alter table bonus_points drop constraint if exists bonus_points_bonus_type_check;
+alter table bonus_points add constraint bonus_points_bonus_type_check
+  check (bonus_type in ('ctp', 'ld', 'top10', 'winner'));
 
 -- Summer 2026 (a9fba9af-fd55-4381-a7c2-65d961bcd46b) Week 5 — Wentworth West, 2026-07-22.
 -- Trackman malfunction forced a full replay; zero scores recorded for anyone.

@@ -7,6 +7,8 @@ import { PlayerManagement } from '@/components/PlayerManagement'
 import { CohortManagement } from '@/components/CohortManagement'
 import { AdminManagement } from '@/components/AdminManagement'
 import { supabase } from '@/lib/supabase'
+import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
+import { determineWeeklyWinner, determineWoodenSpoon } from '@/lib/weekly-winner'
 import type { ParsedWeekData, MatchedLeaderboardEntry, MatchedCTPEntry, MatchedLDEntry } from '@/types'
 
 type AdminStep = 'auth' | 'upload' | 'review' | 'done'
@@ -74,6 +76,8 @@ export default function AdminPage() {
   const [parseError, setParseError] = useState('')
   const [ineligiblePlayers, setIneligiblePlayers] = useState<Set<string>>(new Set())
   const [dnfPlayers, setDnfPlayers] = useState<Set<string>>(new Set())
+  // Admin's manual pick when Trackman itself couldn't break a weekly-winner tie.
+  const [manualWinnerId, setManualWinnerId] = useState<string | null>(null)
   const [saveWeekLoading, setSaveWeekLoading] = useState(false)
   const [saveWeekSuccess, setSaveWeekSuccess] = useState(false)
 
@@ -211,6 +215,7 @@ export default function AdminPage() {
       )
       setDnfPlayers(initialDnf)
       setIneligiblePlayers(new Set(initialDnf))
+      setManualWinnerId(null)
       setParsedData(weekData)
       setOriginalParsedData({ leaderboard: parsed.leaderboard, ctp: parsed.ctp, ld: parsed.ld })
       setReviewWeekId(parsed.week_id)
@@ -252,6 +257,7 @@ export default function AdminPage() {
     setStep('upload')
     setIneligiblePlayers(new Set())
     setDnfPlayers(new Set())
+    setManualWinnerId(null)
     setParsedData(null)
     setOriginalParsedData(null)
   }
@@ -282,12 +288,14 @@ export default function AdminPage() {
           upload_ids: uploadIds,
           ineligible_players: Array.from(ineligiblePlayers),
           dnf_players: Array.from(dnfPlayers),
+          manual_winner_player_id: manualWinnerId,
         }),
       })
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.error ?? 'Confirm failed')
       }
+      setManualWinnerId(null)
       setStep('done')
     } catch (err) {
       setParseError(err instanceof Error ? err.message : 'Unknown error')
@@ -432,6 +440,7 @@ export default function AdminPage() {
                   <option key={w.id} value={w.id}>
                     Week {w.localWeekNumber} — {w.course_name} ({w.date})
                     {w.is_bye ? ' (Bye)' : ''}
+                    {isCurveballWeek(w.week_number) ? ' \uD83C\uDFB2 Curveball' : ''}
                   </option>
                 ))}
               </select>
@@ -508,6 +517,31 @@ export default function AdminPage() {
       if (e.is_new_player && e.matched_player_id) newPlayerIds.add(e.matched_player_id)
     }
 
+    // Weekly winner / Wooden Spoon preview — Max 40 rule (see lib/weekly-winner.ts).
+    const reviewWeek = weeks.find((w) => w.id === reviewWeekId)
+    const reviewCurveball = reviewWeek ? isCurveballWeek(reviewWeek.week_number) : false
+    const winnerForRules = parsedData.leaderboard
+      .filter((e) => e.matched_player_id)
+      .map((e) => {
+        const pid = e.matched_player_id!
+        const isDnf = dnfPlayers.has(pid)
+        return {
+          player_id: pid,
+          stableford_score: isDnf ? 0 : e.stableford_score,
+          score_vs_par: isDnf ? null : e.score_vs_par,
+          position: isDnf ? null : (e.position ?? null),
+          ineligible_for_bonus: isDnf || ineligiblePlayers.has(pid),
+        }
+      })
+    const weeklyWinner = determineWeeklyWinner(winnerForRules, manualWinnerId)
+    const weeklySpoon = determineWoodenSpoon(winnerForRules)
+    const weeklyWinnerPts = weeklyWinnerBonusPoints(reviewCurveball)
+    const nameForPlayerId = (id: string) =>
+      parsedData.leaderboard.find((e) => e.matched_player_id === id)?.matched_name
+      ?? allPlayers.find((p) => p.id === id)?.display_name
+      ?? '?'
+    const tieUnresolved = weeklyWinner.tied
+
     return (
       <div className="min-h-screen bg-[#f9f9f9] text-gray-900 p-4">
         <div className="max-w-3xl mx-auto py-8">
@@ -569,6 +603,54 @@ export default function AdminPage() {
             </table>
           </Section>
 
+          <div className={`mb-6 p-3 rounded-lg text-sm border ${
+            tieUnresolved ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'
+          }`}>
+            {weeklyWinner.winnerIds.length === 0 ? (
+              <>No bonus-eligible players this week — no weekly winner to award.</>
+            ) : tieUnresolved ? (
+              <>
+                <p className="mb-2">
+                  🏆 Weekly winner tied between{' '}
+                  <strong>{weeklyWinner.winnerIds.map(nameForPlayerId).join(' and ')}</strong> —
+                  Trackman itself couldn&apos;t split them (same position and gross score). Pick
+                  the winner below before confirming:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {weeklyWinner.winnerIds.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setManualWinnerId(id)}
+                      className="px-3 py-1.5 text-sm font-medium rounded-lg border border-red-300 bg-white text-red-700 hover:bg-red-100 transition-colors"
+                    >
+                      {nameForPlayerId(id)} wins
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                🏆 {nameForPlayerId(weeklyWinner.winnerIds[0])} wins the week (+{weeklyWinnerPts} pt{weeklyWinnerPts > 1 ? 's' : ''}
+                {reviewCurveball ? ' — Curveball Week' : ''}) and picks next week&apos;s course.
+                {manualWinnerId === weeklyWinner.winnerIds[0] && (
+                  <button
+                    type="button"
+                    onClick={() => setManualWinnerId(null)}
+                    className="ml-2 text-xs underline text-amber-600 hover:text-amber-800"
+                  >
+                    undo manual pick
+                  </button>
+                )}
+              </>
+            )}
+            {weeklySpoon.spoonIds.length > 0 && (
+              <div className="mt-1 text-amber-600/80">
+                🥄 Wooden Spoon: {weeklySpoon.spoonIds.map(nameForPlayerId).join(', ')}
+              </div>
+            )}
+          </div>
+
           <Section title="Closest to Pin">
             {(() => {
               const effectiveWinner = parsedData.ctp.find((e) => !ineligiblePlayers.has(e.matched_player_id ?? ''))
@@ -616,10 +698,11 @@ export default function AdminPage() {
             </button>
             <button
               onClick={handleConfirm}
-              disabled={submitting}
+              disabled={submitting || tieUnresolved}
+              title={tieUnresolved ? 'Pick a weekly winner above before confirming' : undefined}
               className="flex-1 bg-amber-400 hover:bg-amber-500 disabled:opacity-50 text-black font-semibold py-3 rounded-lg transition-colors"
             >
-              {submitting ? 'Saving…' : 'Confirm & Save'}
+              {submitting ? 'Saving…' : tieUnresolved ? 'Resolve tie to continue' : 'Confirm & Save'}
             </button>
           </div>
         </div>

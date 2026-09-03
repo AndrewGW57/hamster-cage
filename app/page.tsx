@@ -3,6 +3,7 @@ import { MapPin } from 'lucide-react'
 import { createServiceClient } from '@/lib/supabase'
 import { getCohortLeaderboard, type CohortLeaderboardRow } from '@/lib/cohort-scoring'
 import { findNextWeek } from '@/lib/next-week'
+import { determineWeeklyWinner, determineWoodenSpoon } from '@/lib/weekly-winner'
 import { CohortLeaderboardTable } from '@/components/CohortLeaderboardTable'
 import { AdminButton } from '@/components/AdminButton'
 import type { Cohort } from '@/types'
@@ -38,7 +39,14 @@ export default async function HomePage() {
 
   // Round 2: leaderboard + grid data, scoped to active cohort
   let rows: CohortLeaderboardRow[] = []
-  let resultsRaw: { week_id: string; player_id: string; stableford_score: number }[] = []
+  let resultsRaw: {
+    week_id: string
+    player_id: string
+    stableford_score: number
+    score_vs_par: number | null
+    position: number | null
+    ineligible_for_bonus: boolean
+  }[] = []
   let contestsRaw: { week_id: string; player_id: string; contest: string }[] = []
   let bonusRaw: { player_id: string; bonus_type: string; week_id: string }[] = []
 
@@ -46,7 +54,10 @@ export default async function HomePage() {
     const [leaderboard, results, contests, bonus] = await Promise.all([
       getCohortLeaderboard(activeCohort.id),
       weekIds.length > 0
-        ? db.from('results').select('week_id, player_id, stableford_score').in('week_id', weekIds)
+        ? db
+            .from('results')
+            .select('week_id, player_id, stableford_score, score_vs_par, position, ineligible_for_bonus')
+            .in('week_id', weekIds)
         : Promise.resolve({ data: [] as typeof resultsRaw }),
       weekIds.length > 0
         ? db.from('side_contests').select('week_id, player_id, contest').in('week_id', weekIds)
@@ -63,13 +74,46 @@ export default async function HomePage() {
   const weeklyScoreMap: WeeklyScoreMap = {}
   for (const r of resultsRaw) {
     if (!weeklyScoreMap[r.player_id]) weeklyScoreMap[r.player_id] = {}
-    weeklyScoreMap[r.player_id][r.week_id] = { stableford_score: r.stableford_score, has_ctp: false, has_ld: false }
+    weeklyScoreMap[r.player_id][r.week_id] = {
+      stableford_score: r.stableford_score,
+      has_ctp: false,
+      has_ld: false,
+      has_winner: false,
+      has_wooden_spoon: false,
+    }
   }
   for (const c of contestsRaw) {
     const entry = weeklyScoreMap[c.player_id]?.[c.week_id]
     if (entry) {
       if (c.contest === 'ctp') entry.has_ctp = true
       if (c.contest === 'ld') entry.has_ld = true
+    }
+  }
+
+  // Weekly winner / Wooden Spoon per week — Max 40 rule (see lib/weekly-winner.ts).
+  const resultsByWeek = new Map<string, typeof resultsRaw>()
+  for (const r of resultsRaw) {
+    const arr = resultsByWeek.get(r.week_id) ?? []
+    arr.push(r)
+    resultsByWeek.set(r.week_id, arr)
+  }
+  for (const [wId, weekResults] of resultsByWeek) {
+    const forRules = weekResults.map((r) => ({
+      player_id: r.player_id,
+      stableford_score: r.stableford_score,
+      score_vs_par: r.score_vs_par,
+      position: r.position,
+      ineligible_for_bonus: r.ineligible_for_bonus ?? false,
+    }))
+    const winner = determineWeeklyWinner(forRules)
+    const spoon = determineWoodenSpoon(forRules)
+    for (const pid of winner.winnerIds) {
+      const entry = weeklyScoreMap[pid]?.[wId]
+      if (entry) entry.has_winner = true
+    }
+    for (const pid of spoon.spoonIds) {
+      const entry = weeklyScoreMap[pid]?.[wId]
+      if (entry) entry.has_wooden_spoon = true
     }
   }
 
@@ -82,7 +126,7 @@ export default async function HomePage() {
   for (const b of bonusRaw) {
     const localWk = weekIdToLocal.get(b.week_id)
     if (localWk === undefined) continue
-    if (!bonusDetailMap[b.player_id]) bonusDetailMap[b.player_id] = { ctp: [], ld: [], top10: [] }
+    if (!bonusDetailMap[b.player_id]) bonusDetailMap[b.player_id] = { ctp: [], ld: [], top10: [], winner: [] }
     bonusDetailMap[b.player_id][b.bonus_type as keyof BonusDetail].push(localWk)
   }
 

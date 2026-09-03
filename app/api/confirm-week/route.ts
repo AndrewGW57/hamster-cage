@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
+import { determineWeeklyWinner } from '@/lib/weekly-winner'
 import type { ConfirmWeekPayload } from '@/types'
 
 export async function POST(req: NextRequest) {
   try {
     const payload: ConfirmWeekPayload = await req.json()
-    const { week_id, leaderboard, ctp, ld, upload_ids, ineligible_players, dnf_players } = payload
+    const { week_id, leaderboard, ctp, ld, upload_ids, ineligible_players, dnf_players, manual_winner_player_id } = payload
     const ineligibleSet = new Set(ineligible_players ?? [])
     const dnfSet = new Set(dnf_players ?? [])
 
@@ -15,9 +17,10 @@ export async function POST(req: NextRequest) {
 
     const db = createServiceClient()
 
-    // Fetch week for cohort_id
-    const { data: weekRow } = await db.from('weeks').select('cohort_id').eq('id', week_id).single()
+    // Fetch week for cohort_id + week_number (Curveball Weeks are weeks 3, 6, 9, 12 — see lib/rules.ts)
+    const { data: weekRow } = await db.from('weeks').select('cohort_id, week_number').eq('id', week_id).single()
     const cohortId: string | null = weekRow?.cohort_id ?? null
+    const isCurveball = weekRow ? isCurveballWeek(weekRow.week_number) : false
 
     // Upsert results
     const resultRows = leaderboard
@@ -77,7 +80,7 @@ export async function POST(req: NextRequest) {
         week_id: string
         player_id: string
         cohort_id: string
-        bonus_type: 'ctp' | 'ld' | 'top10'
+        bonus_type: 'ctp' | 'ld' | 'top10' | 'winner'
         points: number
       }> = []
 
@@ -97,6 +100,17 @@ export async function POST(req: NextRequest) {
         .sort((a, b) => (a.position ?? 999) - (b.position ?? 999))
       for (const entry of eligibleEntries.slice(0, 10)) {
         bonusRows.push({ week_id, player_id: entry.matched_player_id!, cohort_id: cohortId, bonus_type: 'top10', points: 1 })
+      }
+
+      // Weekly winner — Max 40 rule: highest score capped at 40, ties at 40+ broken by
+      // lowest gross (vs-par). A tie that survives that (or any tie below 40, which the
+      // rule sends straight to countback) can't be resolved without hole-by-hole scores
+      // this app doesn't have — in that rare case every tied player gets credited rather
+      // than picking one arbitrarily. See lib/weekly-winner.ts for the full rationale.
+      const winner = determineWeeklyWinner(resultRows, manual_winner_player_id)
+      const winnerPoints = weeklyWinnerBonusPoints(isCurveball)
+      for (const playerId of winner.winnerIds) {
+        bonusRows.push({ week_id, player_id: playerId, cohort_id: cohortId, bonus_type: 'winner', points: winnerPoints })
       }
 
       if (bonusRows.length > 0) {

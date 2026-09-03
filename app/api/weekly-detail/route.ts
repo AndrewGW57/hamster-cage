@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { isCurveballWeek } from '@/lib/rules'
+import { determineWeeklyWinner, determineWoodenSpoon } from '@/lib/weekly-winner'
 import type { WeeklyDetail, MatchedCTPEntry, MatchedLDEntry } from '@/types'
 
 export async function GET(req: NextRequest) {
@@ -30,7 +32,7 @@ export async function GET(req: NextRequest) {
       .eq('week_id', week_id)
       .eq('confirmed', true)
       .in('image_type', ['ctp', 'ld']),
-    db.from('bonus_points').select('player_id, points').eq('week_id', week_id),
+    db.from('bonus_points').select('player_id, points, bonus_type').eq('week_id', week_id),
   ])
 
   if (!week) return NextResponse.json({ error: 'Week not found' }, { status: 404 })
@@ -40,17 +42,47 @@ export async function GET(req: NextRequest) {
     bonusMap.set(b.player_id, (bonusMap.get(b.player_id) ?? 0) + b.points)
   }
 
-  // Course chooser: highest-scoring player (stableford desc) where ineligible_for_bonus = false
-  const chooserRow = [...(results ?? [])]
-    .sort((a: any, b: any) => b.stableford_score - a.stableford_score)
-    .find((r: any) => !(r.ineligible_for_bonus ?? false))
-  const courseChooser = chooserRow
-    ? ((chooserRow.players as { display_name: string })?.display_name ?? null)
-    : null
+  // Weekly winner — Max 40 rule (see lib/weekly-winner.ts). The `winner` bonus_type
+  // rows are the source of truth here: confirm-week already resolved the tie (using
+  // Trackman's own position/countback, then an admin's manual pick if it came to
+  // that) and persisted exactly who won. Recomputing live would lose a manual pick,
+  // so this only recomputes as a fallback for weeks with no bonus rows at all
+  // (e.g. a week not attached to any cohort).
+  const resultsForRules = (results ?? []).map((r: any) => ({
+    player_id: r.player_id,
+    stableford_score: r.stableford_score,
+    score_vs_par: r.score_vs_par,
+    position: r.position,
+    ineligible_for_bonus: r.ineligible_for_bonus ?? false,
+  }))
+  const spoon = determineWoodenSpoon(resultsForRules)
+  const spoonIdSet = new Set(spoon.spoonIds)
+
+  const persistedWinnerIds = (bonusRows ?? [])
+    .filter((b) => b.bonus_type === 'winner')
+    .map((b) => b.player_id)
+
+  let winnerIds: string[]
+  let winnerTied: boolean
+  if (persistedWinnerIds.length > 0) {
+    winnerIds = persistedWinnerIds
+    winnerTied = persistedWinnerIds.length > 1
+  } else {
+    const liveWinner = determineWeeklyWinner(resultsForRules)
+    winnerIds = liveWinner.winnerIds
+    winnerTied = liveWinner.tied
+  }
+  const winnerIdSet = new Set(winnerIds)
 
   const playerMap: Record<string, string> = Object.fromEntries(
     (players ?? []).map((p) => [p.id, p.display_name])
   )
+
+  // Course chooser is only shown as a single name when the win is unambiguous —
+  // an unresolved tie shows the "tied" banner instead (see the modal).
+  const courseChooser = !winnerTied && winnerIds.length === 1
+    ? playerMap[winnerIds[0]] ?? null
+    : null
 
   const ctpContest = (contests ?? []).find((c: any) => c.contest === 'ctp') ?? null
   const ldContest = (contests ?? []).find((c: any) => c.contest === 'ld') ?? null
@@ -72,6 +104,8 @@ export async function GET(req: NextRequest) {
       score_vs_par: r.score_vs_par,
       ineligible_for_bonus: r.ineligible_for_bonus ?? false,
       bonus_points: bonusMap.get(r.player_id) ?? 0,
+      is_weekly_winner: winnerIdSet.has(r.player_id),
+      is_wooden_spoon: spoonIdSet.has(r.player_id),
     })),
     ctp: ctpContest
       ? {
@@ -106,6 +140,8 @@ export async function GET(req: NextRequest) {
           }))
       : null,
     course_chooser: courseChooser,
+    is_curveball: isCurveballWeek(week.week_number),
+    winner_tied: winnerTied,
   }
 
   return NextResponse.json(detail)
