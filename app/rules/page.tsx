@@ -101,9 +101,13 @@ export default async function RulesPage() {
                 )}
                 <div className="flex justify-between">
                   <dt className="text-gray-500">Scores that count</dt>
-                  <dd className="font-medium text-gray-800">
-                    Best {activeCohort.scores_to_count} score{activeCohort.scores_to_count !== 1 ? 's' : ''} count toward your total,
-                    with a minimum of one Curveball week
+                  <dd className="font-medium text-gray-800 text-right">
+                    <div>
+                      Best {activeCohort.scores_to_count} score{activeCohort.scores_to_count !== 1 ? 's' : ''} count toward your total
+                    </div>
+                    <div className="text-xs font-normal text-gray-400 mt-0.5">
+                      with a minimum of one Curveball week
+                    </div>
                   </dd>
                 </div>
                 <div className="flex justify-between">
