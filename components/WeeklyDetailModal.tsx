@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { PlayerFlag } from './PlayerFlag'
+import { MAX_STABLEFORD_POINTS } from '@/lib/rules'
 import type { WeeklyDetail, CtpFullEntry, LdFullEntry } from '@/types'
 
 interface Props {
@@ -258,7 +259,7 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
                     {r.ineligible_for_bonus || r.bonus_points === 0 ? '–' : `+${r.bonus_points}`}
                   </td>
                   <td className="py-2 text-center font-mono text-amber-600 font-semibold">
-                    {r.stableford_score + r.bonus_points}
+                    {Math.min(r.stableford_score, MAX_STABLEFORD_POINTS) + r.bonus_points}
                   </td>
                   <td className="py-2 text-center font-mono text-xs">
                     {(() => {

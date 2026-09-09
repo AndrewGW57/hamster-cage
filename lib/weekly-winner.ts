@@ -1,4 +1,4 @@
-import { capStableford } from './rules'
+import { capStableford, MAX_STABLEFORD_POINTS } from './rules'
 
 /**
  * Weekly winner / Wooden Spoon determination — Max 40 rule.
@@ -7,30 +7,35 @@ import { capStableford } from './rules'
  * (confirm-week, weekly-detail) and client-side (the admin review screen,
  * for a live preview before anything is saved).
  *
- * Tie handling: Trackman already runs its own countback for a genuine points
- * tie in a normal (uncapped) round — that's exactly what its `position`
- * column already reflects, so this app doesn't need to reimplement
- * back-9/back-6/back-3 itself. What this DOES resolve automatically, in
- * order:
- *   1. A clear high score under the Max 40 cap → single winner.
- *   2. A tie created BY the cap (e.g. 45 and 42 both read as 40) → broken by
- *      whoever actually finished higher on Trackman's own leaderboard
- *      (lowest `position`), which is exactly the "lowest gross score" the
- *      rule asks for and already carries Trackman's countback with it.
- *   3. If Trackman itself showed a dead tie (two players sharing the same
- *      position, e.g. "T1") — the last-resort tiebreak: lowest vs-par.
- * What it CANNOT resolve — because Trackman itself couldn't split them —
- * is a tie that survives all three steps. That's the rare case a human
- * needs to settle, surfaced via `tied: true`; the admin review screen lets
- * Andrew pick the winner by hand right there instead of editing the
- * database directly (see app/admin/page.tsx and ConfirmWeekPayload).
+ * Tie handling has two genuinely different cases, and using the wrong one
+ * for the wrong case is exactly the bug this file used to have:
+ *
+ *   - A tie AT the Max 40 cap (two or more players read 40+ once capped).
+ *     The written rule is explicit here: "the weekly winner is whoever has
+ *     the lowest gross score." Trackman's `position` reflects the RAW
+ *     (uncapped) points ranking — precisely the number the cap exists to
+ *     override — so position must NOT be used to break this kind of tie.
+ *     Gross score (`score_vs_par`, lower is better) is the correct and
+ *     only automatic tiebreak here.
+ *   - A tie BELOW the cap (a genuine points tie that never touched 40).
+ *     Trackman already runs its own countback for this and `position`
+ *     already reflects the result, so there's no need to reimplement
+ *     back-9/back-6/back-3 — position is the correct tiebreak here.
+ *
+ * What this CANNOT resolve automatically is a tie that survives its
+ * relevant tiebreak too (identical gross scores at the cap, or Trackman
+ * itself showing a dead tie like "T1" below it). That's the rare case a
+ * human needs to settle, surfaced via `tied: true`; the admin review
+ * screen lets Andrew pick the winner by hand right there instead of
+ * editing the database directly (see app/admin/page.tsx and
+ * ConfirmWeekPayload).
  */
 
 export interface WeeklyResultForRules {
   player_id: string
   stableford_score: number
   score_vs_par: number | null
-  /** Trackman's own leaderboard position — already countback-resolved for a genuine points tie. */
+  /** Trackman's own leaderboard position — already countback-resolved for a genuine (sub-cap) points tie. */
   position: number | null
   ineligible_for_bonus: boolean
 }
@@ -39,7 +44,7 @@ export interface WeeklyWinnerResult {
   winnerIds: string[]
   cappedScore: number
   tied: boolean
-  /** Null when there's no tie, or it broke cleanly on position/gross. */
+  /** Null when there's no tie, or it broke cleanly on gross/position. */
   tieReason: 'trackman-tied-needs-manual-pick' | null
 }
 
@@ -49,25 +54,32 @@ export interface WoodenSpoonResult {
   tied: boolean
 }
 
-function byPositionThenGross(a: WeeklyResultForRules, b: WeeklyResultForRules): number {
-  const ap = a.position ?? Infinity
-  const bp = b.position ?? Infinity
-  if (ap !== bp) return ap - bp
+function byGrossAsc(a: WeeklyResultForRules, b: WeeklyResultForRules): number {
   const av = a.score_vs_par ?? Infinity
   const bv = b.score_vs_par ?? Infinity
   return av - bv
 }
 
+function byPositionAsc(a: WeeklyResultForRules, b: WeeklyResultForRules): number {
+  const ap = a.position ?? Infinity
+  const bp = b.position ?? Infinity
+  return ap - bp
+}
+
 /**
- * Resolves a tied group down as far as position + gross score can take it.
- * Returns every player left tied after both checks (length 1 = resolved).
+ * Resolves a tied group as far as the rules allow. Every candidate shares
+ * the same capped score, so `atCap` is decided once for the whole group.
  */
-function narrowTie<T extends WeeklyResultForRules>(candidates: T[]): T[] {
-  const sorted = [...candidates].sort(byPositionThenGross)
-  const best = sorted[0]
-  return sorted.filter(
-    (c) => (c.position ?? Infinity) === (best.position ?? Infinity) && (c.score_vs_par ?? Infinity) === (best.score_vs_par ?? Infinity)
-  )
+function narrowTie<T extends WeeklyResultForRules & { capped: number }>(candidates: T[]): T[] {
+  const atCap = candidates[0].capped >= MAX_STABLEFORD_POINTS
+  if (atCap) {
+    const sorted = [...candidates].sort(byGrossAsc)
+    const bestGross = sorted[0].score_vs_par ?? Infinity
+    return sorted.filter((c) => (c.score_vs_par ?? Infinity) === bestGross)
+  }
+  const sorted = [...candidates].sort(byPositionAsc)
+  const bestPosition = sorted[0].position ?? Infinity
+  return sorted.filter((c) => (c.position ?? Infinity) === bestPosition)
 }
 
 export function determineWeeklyWinner(
@@ -93,8 +105,9 @@ export function determineWeeklyWinner(
     return { winnerIds: [narrowed[0].player_id], cappedScore: topCapped, tied: false, tieReason: null }
   }
 
-  // Trackman itself couldn't split this group — a human call is needed.
-  // If the admin has already made that call (manualWinnerId), honor it.
+  // Neither gross score (at-cap ties) nor Trackman's own position (sub-cap
+  // ties) could split this group — a human call is needed. If the admin
+  // has already made that call (manualWinnerId), honor it.
   if (manualWinnerId && narrowed.some((c) => c.player_id === manualWinnerId)) {
     return { winnerIds: [manualWinnerId], cappedScore: topCapped, tied: false, tieReason: null }
   }
