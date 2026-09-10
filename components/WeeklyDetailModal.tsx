@@ -123,7 +123,14 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
   const { week, results, ctp, ld, ctp_full_list, ld_full_list } = detail
   const backdropRef = useRef<HTMLDivElement>(null)
 
-  const byScore = (a: typeof results[0], b: typeof results[0]) => b.stableford_score - a.stableford_score
+  // Ranks by the same number the Total column shows (capped score + bonus),
+  // not raw stableford_score — otherwise a player over the Max 40 cap can
+  // outrank the actual winner here while the Total column says otherwise.
+  // Ties fall back to gross score (lower vs-par first), matching how Max 40
+  // ties themselves are broken (see lib/weekly-winner.ts).
+  const weeklyTotal = (r: typeof results[0]) => Math.min(r.stableford_score, MAX_STABLEFORD_POINTS) + r.bonus_points
+  const byScore = (a: typeof results[0], b: typeof results[0]) =>
+    weeklyTotal(b) - weeklyTotal(a) || (a.score_vs_par ?? Infinity) - (b.score_vs_par ?? Infinity)
   const finishers = [...results].filter(r => !!r.position).sort(byScore)
   const dnfPlayers = [...results].filter(r => !r.position).sort(byScore)
 
