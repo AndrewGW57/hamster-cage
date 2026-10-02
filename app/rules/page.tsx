@@ -39,8 +39,10 @@ export default async function RulesPage() {
                 <Image src="/hamster-logo.jpg" alt="The Hamster Cage" height={80} width={80} className="h-20 w-auto" style={{ width: 'auto' }} priority loading="eager" />
               </div>
               <div className="flex flex-col justify-center items-center">
-                <span className="text-[10px] text-[#9ca3af] mb-1">Sponsored by</span>
-                <Image src="/sponsor-ubn.png" alt="UBN" height={60} width={180} className="h-[60px] w-auto" style={{ width: 'auto' }} />
+                <div className="flex flex-col w-fit">
+                  <span className="text-sm text-amber-700 mb-1 self-start">Sponsored by</span>
+                  <Image src="/sponsor-ubn.png" alt="UBN" height={60} width={180} className="h-[60px] w-auto" style={{ width: 'auto' }} />
+                </div>
                 <WoodenSpoonSponsor variant="mobile" />
               </div>
             </div>
@@ -66,8 +68,8 @@ export default async function RulesPage() {
                 <AdminButton />
               </div>
               <div className="flex flex-col items-end mt-8">
-                <span className="text-xs text-[#9ca3af]">Sponsored by</span>
                 <div className="flex flex-col items-center">
+                  <span className="text-sm text-amber-700 self-start">Sponsored by</span>
                   <Image src="/sponsor-ubn.png" alt="UBN" height={120} width={360} className="h-[120px] w-auto mt-0.5" style={{ width: 'auto' }} />
                   <WoodenSpoonSponsor variant="desktop" />
                 </div>
