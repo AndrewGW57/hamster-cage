@@ -176,7 +176,7 @@ export default async function CohortPage({
               </div>
               <div className="flex flex-col justify-center items-center">
                 <div className="flex flex-col w-fit">
-                  <span className="text-sm text-amber-700 mb-1 self-start">Sponsored by</span>
+                  <span className="text-sm text-amber-700 mb-1 self-center">Sponsored by</span>
                   <Image src="/sponsor-ubn.png" alt="UBN" height={60} width={180} className="h-[60px] w-auto" style={{ width: 'auto' }} />
                 </div>
                 <WoodenSpoonSponsor variant="mobile" spoonWeek={spoonWeek} />
@@ -206,7 +206,7 @@ export default async function CohortPage({
                 </div>
                 <div className="flex flex-col items-end mt-8">
                   <div className="flex flex-col items-center">
-                    <span className="text-sm text-amber-700 self-start">Sponsored by</span>
+                    <span className="text-sm text-amber-700 self-center">Sponsored by</span>
                     <Image src="/sponsor-ubn.png" alt="UBN" height={120} width={360} className="h-[120px] w-auto mt-0.5" style={{ width: 'auto' }} />
                     <WoodenSpoonSponsor variant="desktop" spoonWeek={spoonWeek} />
                   </div>
