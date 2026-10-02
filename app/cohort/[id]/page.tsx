@@ -7,6 +7,7 @@ import { findNextWeek } from '@/lib/next-week'
 import { determineWeeklyWinner, determineWoodenSpoon } from '@/lib/weekly-winner'
 import { CohortLeaderboardTable } from '@/components/CohortLeaderboardTable'
 import { AdminButton } from '@/components/AdminButton'
+import { WoodenSpoonSponsor, type WoodenSpoonWeek } from '@/components/WoodenSpoonSponsor'
 import type { CohortLeaderboardRow } from '@/lib/cohort-scoring'
 import type { Cohort } from '@/types'
 
@@ -114,6 +115,7 @@ export default async function CohortPage({
     arr.push(r)
     resultsByWeek.set(r.week_id, arr)
   }
+  const spoonIdsByWeek = new Map<string, string[]>()
   for (const [wId, weekResults] of resultsByWeek) {
     const forRules = (weekResults ?? []).map((r) => ({
       player_id: r.player_id,
@@ -124,6 +126,7 @@ export default async function CohortPage({
     }))
     const winner = determineWeeklyWinner(forRules)
     const spoon = determineWoodenSpoon(forRules)
+    spoonIdsByWeek.set(wId, spoon.spoonIds)
     for (const pid of winner.winnerIds) {
       const entry = weeklyScoreMap[pid]?.[wId]
       if (entry) entry.has_winner = true
@@ -133,6 +136,17 @@ export default async function CohortPage({
       if (entry) entry.has_wooden_spoon = true
     }
   }
+
+  // Latest week with results → its Wooden Spoon recipient(s), for the sponsor block
+  const latestResultsWeek = [...weeks].reverse().find((w) => weeksWithResults.has(w.id)) ?? null
+  const spoonWeek: WoodenSpoonWeek | null = latestResultsWeek
+    ? {
+        weekNumber: latestResultsWeek.local_week_number,
+        names: (spoonIdsByWeek.get(latestResultsWeek.id) ?? [])
+          .map((pid) => rows.find((r) => r.player_id === pid)?.display_name)
+          .filter((n): n is string => !!n),
+      }
+    : null
 
   // Build bonus detail map (local week numbers per bonus type)
   const bonusDetailMap: BonusDetailMap = {}
@@ -163,6 +177,7 @@ export default async function CohortPage({
               <div className="flex flex-col justify-center items-center">
                 <span className="text-[10px] text-[#9ca3af] mb-1">Sponsored by</span>
                 <Image src="/sponsor-ubn.png" alt="UBN" height={60} width={180} className="h-[60px] w-auto" style={{ width: 'auto' }} />
+                <WoodenSpoonSponsor variant="mobile" spoonWeek={spoonWeek} />
               </div>
             </div>
             <div>
@@ -189,7 +204,10 @@ export default async function CohortPage({
                 </div>
                 <div className="flex flex-col items-end mt-8">
                   <span className="text-xs text-[#9ca3af]">Sponsored by</span>
-                  <Image src="/sponsor-ubn.png" alt="UBN" height={120} width={360} className="h-[120px] w-auto mt-0.5" style={{ width: 'auto' }} />
+                  <div className="flex flex-col items-center">
+                    <Image src="/sponsor-ubn.png" alt="UBN" height={120} width={360} className="h-[120px] w-auto mt-0.5" style={{ width: 'auto' }} />
+                    <WoodenSpoonSponsor variant="desktop" spoonWeek={spoonWeek} />
+                  </div>
                 </div>
               </div>
             </div>

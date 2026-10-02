@@ -1,6 +1,7 @@
 import Image from 'next/image'
 import { createServiceClient } from '@/lib/supabase'
 import { AdminButton } from '@/components/AdminButton'
+import { WoodenSpoonSponsor } from '@/components/WoodenSpoonSponsor'
 import { RulesEditor } from '@/components/RulesEditor'
 
 export const dynamic = 'force-dynamic'
@@ -40,6 +41,7 @@ export default async function RulesPage() {
               <div className="flex flex-col justify-center items-center">
                 <span className="text-[10px] text-[#9ca3af] mb-1">Sponsored by</span>
                 <Image src="/sponsor-ubn.png" alt="UBN" height={60} width={180} className="h-[60px] w-auto" style={{ width: 'auto' }} />
+                <WoodenSpoonSponsor variant="mobile" />
               </div>
             </div>
             <div>
@@ -65,7 +67,10 @@ export default async function RulesPage() {
               </div>
               <div className="flex flex-col items-end mt-8">
                 <span className="text-xs text-[#9ca3af]">Sponsored by</span>
-                <Image src="/sponsor-ubn.png" alt="UBN" height={120} width={360} className="h-[120px] w-auto mt-0.5" style={{ width: 'auto' }} />
+                <div className="flex flex-col items-center">
+                  <Image src="/sponsor-ubn.png" alt="UBN" height={120} width={360} className="h-[120px] w-auto mt-0.5" style={{ width: 'auto' }} />
+                  <WoodenSpoonSponsor variant="desktop" />
+                </div>
               </div>
             </div>
           </div>
