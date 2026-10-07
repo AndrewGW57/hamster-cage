@@ -13,6 +13,11 @@ interface Props {
 
 const ROW_TINT = ['bg-[#fef9c3]', 'bg-[#f1f5f9]', 'bg-[#fef3e2]']
 
+// First week (by weeks.date, YYYY-MM-DD) using the new tiebreak order below.
+// Weeks before this date deliberately keep the old order so past results
+// pages don't change. Gated on date, not week_number, which resets per cohort.
+const NEW_TIEBREAK_FROM_DATE = '2026-10-07'
+
 function formatDate(dateStr: string): string {
   const parts = dateStr.split('-')
   if (parts.length === 3) {
@@ -126,11 +131,19 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
   // Ranks by the same number the Total column shows (capped score + bonus),
   // not raw stableford_score — otherwise a player over the Max 40 cap can
   // outrank the actual winner here while the Total column says otherwise.
-  // Ties fall back to gross score (lower vs-par first), matching how Max 40
-  // ties themselves are broken (see lib/weekly-winner.ts).
-  const weeklyTotal = (r: typeof results[0]) => Math.min(r.stableford_score, MAX_STABLEFORD_POINTS) + r.bonus_points
+  // From NEW_TIEBREAK_FROM_DATE, ties fall back to capped points (higher first),
+  // then Trackman's position (lower first), then original order. score_vs_par is
+  // not used there: the stored value is points relative to par (higher is
+  // better), not gross. Earlier weeks keep the old order: total, then
+  // score_vs_par lowest first, then original order.
+  const cappedPoints = (r: typeof results[0]) => Math.min(r.stableford_score, MAX_STABLEFORD_POINTS)
+  const weeklyTotal = (r: typeof results[0]) => cappedPoints(r) + r.bonus_points
+  const useNewTiebreak = week.date >= NEW_TIEBREAK_FROM_DATE
   const byScore = (a: typeof results[0], b: typeof results[0]) =>
-    weeklyTotal(b) - weeklyTotal(a) || (a.score_vs_par ?? Infinity) - (b.score_vs_par ?? Infinity)
+    weeklyTotal(b) - weeklyTotal(a) ||
+    (useNewTiebreak
+      ? cappedPoints(b) - cappedPoints(a) || (a.position ?? Infinity) - (b.position ?? Infinity)
+      : (a.score_vs_par ?? Infinity) - (b.score_vs_par ?? Infinity))
   const finishers = [...results].filter(r => !!r.position).sort(byScore)
   const dnfPlayers = [...results].filter(r => !r.position).sort(byScore)
 
