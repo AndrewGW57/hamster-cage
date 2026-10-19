@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { MergePlayersDialog } from '@/components/MergePlayersDialog'
+import type { MergeResult } from '@/types'
 
 interface Player {
   id: string
@@ -28,13 +30,29 @@ function ViewRow({
   player,
   onEdit,
   showSaved,
+  selected,
+  onToggleSelect,
+  selectDisabled,
 }: {
   player: Player
   onEdit: () => void
   showSaved: boolean
+  selected: boolean
+  onToggleSelect: () => void
+  selectDisabled: boolean
 }) {
   return (
     <tr className="border-b border-gray-100 hover:bg-gray-50">
+      <td className="py-2 pl-3">
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          disabled={selectDisabled}
+          aria-label={`Select ${player.display_name}`}
+          className="accent-amber-500"
+        />
+      </td>
       <td className="py-2 px-3">
         <FlagPreview code={player.country_code ?? ''} />
       </td>
@@ -84,6 +102,7 @@ function EditRow({
 }) {
   return (
     <tr className="border-b border-gray-100 bg-amber-50">
+      <td className="py-2 pl-3" />
       <td className="py-2 px-3">
         <FlagPreview code={editCode} />
       </td>
@@ -139,6 +158,9 @@ export function PlayerManagement() {
   const [saving, setSaving] = useState(false)
   const [savedId, setSavedId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [mergePair, setMergePair] = useState<[string, string] | null>(null)
+  const [mergeNotice, setMergeNotice] = useState('')
 
   async function fetchPlayers() {
     setLoading(true)
@@ -205,6 +227,23 @@ export function PlayerManagement() {
     }
   }
 
+  function toggleSelect(id: string) {
+    setMergeNotice('')
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
+  function handleMerged(result: MergeResult) {
+    setMergePair(null)
+    setSelectedIds([])
+    const m = result.moved_counts
+    setMergeNotice(
+      `Merged into ${result.survivor.display_name}: moved ${m.results} results, ${m.bonus_points} bonus points, ` +
+        `${m.side_contests} side contests, ${m.player_aliases} aliases` +
+        (result.alias_added ? `; added alias "${result.alias_added}"` : '')
+    )
+    fetchPlayers()
+  }
+
   return (
     <div className="mt-8 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">
       <button
@@ -223,9 +262,22 @@ export function PlayerManagement() {
           ) : (
             <>
               {error && <p className="px-4 pt-3 text-sm text-red-500">{error}</p>}
+              {mergeNotice && <p className="px-4 pt-3 text-sm text-green-600">{mergeNotice}</p>}
+              {selectedIds.length === 2 && (
+                <div className="px-4 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setMergePair([selectedIds[0], selectedIds[1]])}
+                    className="text-xs bg-amber-400 hover:bg-amber-500 text-black font-semibold rounded px-3 py-1 transition-colors"
+                  >
+                    Merge 2 players
+                  </button>
+                </div>
+              )}
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 border-b border-gray-100 text-left">
+                    <th className="py-2 pl-3 w-6" />
                     <th className="py-2 px-3 w-8" />
                     <th className="py-2 px-3">Name</th>
                     <th className="py-2 px-3 w-16">Code</th>
@@ -253,6 +305,9 @@ export function PlayerManagement() {
                         player={player}
                         onEdit={() => startEdit(player)}
                         showSaved={savedId === player.id}
+                        selected={selectedIds.includes(player.id)}
+                        onToggleSelect={() => toggleSelect(player.id)}
+                        selectDisabled={editingId !== null}
                       />
                     )
                   )}
@@ -261,6 +316,14 @@ export function PlayerManagement() {
             </>
           )}
         </div>
+      )}
+
+      {mergePair && (
+        <MergePlayersDialog
+          playerIds={mergePair}
+          onClose={() => setMergePair(null)}
+          onMerged={handleMerged}
+        />
       )}
     </div>
   )

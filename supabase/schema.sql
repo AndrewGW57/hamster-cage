@@ -25,6 +25,11 @@
 --             ('winner' = Weekly Stableford winner bonus: 1 point, 2 on Curveball weeks 3/6/9/12.
 --              Max 40, Curveball Weeks, and Wooden Spoon are otherwise computed at read time —
 --              see lib/rules.ts and lib/weekly-winner.ts — and need no other schema change.)
+-- 2026-10-19  supabase/migrations/20261019_merge_players.sql — player_merges log table +
+--             merge_players(p_a, p_b, p_final_name, p_dry_run, p_admin) function (service_role only).
+--             Live constraint check the same day found drift, now reflected below:
+--               player_aliases is UNIQUE (alias) globally, not unique (player_id, alias);
+--               side_contests has UNIQUE (week_id, contest), previously undocumented.
 -- =====================================================================
 
 -- Enable UUID extension
@@ -42,8 +47,7 @@ create table if not exists players (
 create table if not exists player_aliases (
   id uuid primary key default gen_random_uuid(),
   player_id uuid not null references players(id) on delete cascade,
-  alias text not null,
-  unique (player_id, alias)
+  alias text not null unique        -- live: player_aliases_alias_key, global (confirmed 2026-10-19)
 );
 
 -- Weeks (one row per round played)
@@ -81,7 +85,8 @@ create table if not exists side_contests (
   contest text not null check (contest in ('ctp', 'ld')),
   hole integer,
   measurement text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  unique (week_id, contest)         -- live: side_contests_week_id_contest_key (confirmed 2026-10-19)
 );
 
 -- Uploads (tracks which screenshots have been processed)
@@ -212,3 +217,19 @@ alter table bonus_points add constraint bonus_points_bonus_type_check
 -- Summer 2026 (a9fba9af-fd55-4381-a7c2-65d961bcd46b) Week 5 — Wentworth West, 2026-07-22.
 -- Trackman malfunction forced a full replay; zero scores recorded for anyone.
 update weeks set is_bye = true where id = 'a03d393a-19fd-4340-a0d0-ae86d022b26e';
+
+-- 2026-10-19 — player merge log. The merge_players() function lives only in
+-- supabase/migrations/20261019_merge_players.sql (one copy, so it cannot drift).
+create table if not exists player_merges (
+  id uuid primary key default gen_random_uuid(),
+  merged_at timestamptz not null default now(),
+  admin_username text not null,
+  survivor_id uuid not null,
+  removed_id uuid not null,
+  final_name text not null,
+  survivor_before jsonb not null,
+  removed_before jsonb not null,
+  moved jsonb not null,
+  result jsonb not null
+);
+alter table player_merges enable row level security;  -- no policies: service role only

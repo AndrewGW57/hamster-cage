@@ -106,6 +106,7 @@ export default function AdminPage() {
   }, [])
 
   function handleLogout() {
+    fetch('/api/admin-logout', { method: 'POST' }).catch(() => {})
     sessionStorage.removeItem('adminSession')
     setStep('auth')
     setUsername('')

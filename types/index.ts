@@ -193,3 +193,83 @@ export interface ConfirmWeekPayload {
   // (see lib/weekly-winner.ts) — only used when that tie actually occurs.
   manual_winner_player_id?: string | null
 }
+
+// ---------------------------------------------------------------------
+// Merge players — shapes returned by the merge_players() SQL function
+// (supabase/migrations/20261019_merge_players.sql) and the merge routes.
+// ---------------------------------------------------------------------
+
+export interface MergePlayerSnapshot {
+  id: string
+  display_name: string
+  country_code: string | null
+  ld_handicap_yards: number
+  created_at: string
+  aliases: string[]
+}
+
+export interface MergeTableCounts {
+  results: number
+  bonus_points: number
+  side_contests: number
+  player_aliases: number
+}
+
+export interface MergeCollision {
+  table: 'results' | 'bonus_points' | 'side_contests'
+  week_id: string
+  cohort: string | null
+  week_number: number
+  date: string
+  course: string
+}
+
+export interface MergeWarning {
+  field: 'country_code' | 'ld_handicap_yards'
+  survivor: string | number | null
+  removed: string | number | null
+}
+
+export interface MergePreview {
+  dry_run: true
+  survivor: MergePlayerSnapshot
+  removed: MergePlayerSnapshot
+  final_name: string | null
+  counts: { survivor: MergeTableCounts; removed: MergeTableCounts }
+  collisions: MergeCollision[]
+  alias_conflicts: { alias: string; owner: string; owner_id: string }[]
+  name_conflicts: { display_name: string; id: string }[]
+  warnings: MergeWarning[]
+  can_merge: boolean
+}
+
+// One player's standing in a cohort, as getCohortLeaderboard computes it today
+export interface MergeCohortStanding {
+  rank: number
+  rounds_played: number
+  stableford_total: number
+  bonus_total: number
+  total: number
+}
+
+export interface MergeCohortTotals {
+  cohort_id: string
+  cohort_name: string
+  survivor: MergeCohortStanding | null
+  removed: MergeCohortStanding | null
+}
+
+export interface MergePreviewResponse {
+  preview: MergePreview
+  cohort_totals: MergeCohortTotals[]
+}
+
+export interface MergeResult {
+  dry_run: false
+  survivor: MergePlayerSnapshot
+  removed_id: string
+  alias_added: string | null
+  moved_counts: MergeTableCounts
+  warnings: MergeWarning[]
+  merge_id: string
+}
