@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import * as bcrypt from 'bcryptjs'
 import { createServiceClient } from '@/lib/supabase'
+import { requireAdmin } from '@/lib/admin-session'
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if (auth instanceof NextResponse) return auth
+
   try {
     const { username, new_password } = await req.json()
     if (!username || !new_password) {

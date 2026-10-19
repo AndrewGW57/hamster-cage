@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { requireAdmin } from '@/lib/admin-session'
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if (auth instanceof NextResponse) return auth
+
   try {
     const { player_id, display_name } = await req.json()
     if (!player_id || !display_name) {

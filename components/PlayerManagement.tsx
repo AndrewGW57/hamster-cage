@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { adminFetch } from '@/lib/admin-fetch'
 import { MergePlayersDialog } from '@/components/MergePlayersDialog'
 import type { MergeResult } from '@/types'
 
@@ -197,7 +198,7 @@ export function PlayerManagement() {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch('/api/update-player', {
+      const res = await adminFetch('/api/update-player', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

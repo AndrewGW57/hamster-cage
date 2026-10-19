@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { requireAdmin } from '@/lib/admin-session'
 import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
 import { determineWeeklyWinner } from '@/lib/weekly-winner'
 import type { ConfirmWeekPayload } from '@/types'
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if (auth instanceof NextResponse) return auth
+
   try {
     const payload: ConfirmWeekPayload = await req.json()
     const { week_id, leaderboard, ctp, ld, upload_ids, ineligible_players, dnf_players, manual_winner_player_id } = payload

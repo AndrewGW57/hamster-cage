@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { adminFetch } from '@/lib/admin-fetch'
 
 interface AdminRow {
   id: string
@@ -32,7 +33,7 @@ export function AdminManagement() {
   async function fetchAdmins() {
     setLoading(true)
     setError('')
-    const res = await fetch('/api/list-admins')
+    const res = await adminFetch('/api/list-admins')
     if (!res.ok) {
       setError('Failed to load admins')
       setLoading(false)
@@ -45,7 +46,7 @@ export function AdminManagement() {
 
   async function handleDelete(username: string) {
     if (!confirm(`Delete admin "${username}"?`)) return
-    const res = await fetch('/api/delete-admin', {
+    const res = await adminFetch('/api/delete-admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username }),
@@ -63,7 +64,7 @@ export function AdminManagement() {
     if (!changePwFor || !newPw) return
     setPwSaving(true)
     setPwError('')
-    const res = await fetch('/api/update-admin-password', {
+    const res = await adminFetch('/api/update-admin-password', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: changePwFor, new_password: newPw }),
@@ -83,7 +84,7 @@ export function AdminManagement() {
     if (!newUsername || !newPassword) return
     setAddSaving(true)
     setAddError('')
-    const res = await fetch('/api/create-admin', {
+    const res = await adminFetch('/api/create-admin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username: newUsername, password: newPassword }),

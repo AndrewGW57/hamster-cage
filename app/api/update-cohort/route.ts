@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { requireAdmin } from '@/lib/admin-session'
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if (auth instanceof NextResponse) return auth
+
   try {
     const { id, name, scores_to_count, min_rounds_to_rank, total_weeks, weeks_per_tab, status } = await req.json()
     if (!id) {

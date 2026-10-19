@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { requireAdmin } from '@/lib/admin-session'
 
 export async function POST(req: NextRequest) {
+  const admin = await requireAdmin(req)
+  if (admin instanceof NextResponse) return admin
+
   try {
     const { username } = await req.json()
     if (!username) {
       return NextResponse.json({ error: 'Missing username' }, { status: 400 })
+    }
+    if (username.trim().toLowerCase() === admin.username) {
+      return NextResponse.json({ error: "You can't delete your own account" }, { status: 400 })
     }
 
     const db = createServiceClient()

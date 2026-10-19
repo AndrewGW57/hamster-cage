@@ -1,7 +1,11 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { requireAdmin } from '@/lib/admin-session'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if (auth instanceof NextResponse) return auth
+
   try {
     const db = createServiceClient()
     const { data, error } = await db

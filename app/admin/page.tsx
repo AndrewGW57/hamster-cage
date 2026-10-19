@@ -7,6 +7,7 @@ import { PlayerManagement } from '@/components/PlayerManagement'
 import { CohortManagement } from '@/components/CohortManagement'
 import { AdminManagement } from '@/components/AdminManagement'
 import { supabase } from '@/lib/supabase'
+import { adminFetch, SESSION_EXPIRED_FLAG, SESSION_EXPIRED_MESSAGE } from '@/lib/admin-fetch'
 import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
 import { determineWeeklyWinner, determineWoodenSpoon } from '@/lib/weekly-winner'
 import type { ParsedWeekData, MatchedLeaderboardEntry, MatchedCTPEntry, MatchedLDEntry } from '@/types'
@@ -95,6 +96,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     try {
+      if (sessionStorage.getItem(SESSION_EXPIRED_FLAG)) {
+        sessionStorage.removeItem(SESSION_EXPIRED_FLAG)
+        setAuthError(SESSION_EXPIRED_MESSAGE)
+      }
       const raw = sessionStorage.getItem('adminSession')
       if (!raw) return
       const session = JSON.parse(raw)
@@ -137,7 +142,7 @@ export default function AdminPage() {
     setSaveWeekSuccess(false)
     setParseError('')
     try {
-      const res = await fetch('/api/create-week', {
+      const res = await adminFetch('/api/create-week', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ course_name: newCourseName, date: newDate, cohort_id: selectedCohortId || null }),
@@ -189,7 +194,7 @@ export default function AdminPage() {
       formData.append('ld', ldFile)
 
       const [parseRes, playersRes] = await Promise.all([
-        fetch('/api/parse-week', { method: 'POST', body: formData }),
+        adminFetch('/api/parse-week', { method: 'POST', body: formData }),
         supabase
           .from('players')
           .select('id, display_name, player_aliases(alias)')
@@ -245,7 +250,7 @@ export default function AdminPage() {
       const orphanIds = getOrphanIds(originalParsedData, parsedData)
       if (orphanIds.length > 0) {
         try {
-          await fetch('/api/cleanup-orphans', {
+          await adminFetch('/api/cleanup-orphans', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ player_ids: orphanIds }),
@@ -270,7 +275,7 @@ export default function AdminPage() {
       if (originalParsedData) {
         const orphanIds = getOrphanIds(originalParsedData, parsedData)
         if (orphanIds.length > 0) {
-          await fetch('/api/cleanup-orphans', {
+          await adminFetch('/api/cleanup-orphans', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ player_ids: orphanIds }),
@@ -278,7 +283,7 @@ export default function AdminPage() {
         }
       }
 
-      const res = await fetch('/api/confirm-week', {
+      const res = await adminFetch('/api/confirm-week', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -926,7 +931,7 @@ function PlayerMatchCell({
     setRenameLoading(true)
     setRenameError('')
     try {
-      const res = await fetch('/api/rename-player', {
+      const res = await adminFetch('/api/rename-player', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: entry.matched_player_id, display_name: renameVal }),
@@ -948,7 +953,7 @@ function PlayerMatchCell({
     setRemapLoading(true)
     setRemapError('')
     try {
-      const res = await fetch('/api/remap-player', {
+      const res = await adminFetch('/api/remap-player', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: entry.matched_player_id }),

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
+import { requireAdmin } from '@/lib/admin-session'
 import { parseLeaderboard, parseCTP, parseLD, type ImageMediaType } from '@/lib/parse-trackman'
 import { matchPlayer } from '@/lib/match-player'
 import type {
@@ -39,6 +40,9 @@ function detectImageMediaType(buffer: Buffer, fallback: ImageMediaType): ImageMe
 }
 
 export async function POST(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if (auth instanceof NextResponse) return auth
+
   const db = createServiceClient()
   let weekId: string | null = null
   let weekCreatedHere = false

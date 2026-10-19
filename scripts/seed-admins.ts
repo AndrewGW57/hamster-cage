@@ -19,26 +19,38 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
 const db = createClient(url, key, { auth: { persistSession: false } })
 
-const PASSWORD = 'HamsterCage'
 const ROUNDS = 10
 
 async function main() {
-  const hash = bcrypt.hashSync(PASSWORD, ROUNDS)
-  const admins = [
-    { username: 'andrew', password_hash: hash },
-    { username: 'eugene', password_hash: hash },
-  ]
-
-  for (const admin of admins) {
-    const { error } = await db
-      .from('admins')
-      .upsert(admin, { onConflict: 'username' })
-    if (error) {
-      console.error(`Failed to upsert ${admin.username}:`, error.message)
-    } else {
-      console.log(`✓ ${admin.username}`)
-    }
+  // Usage: npx tsx scripts/seed-admins.ts <username> <password>
+  // Creates one admin. Never overwrites an existing one (use the admin page to change passwords).
+  const [rawUsername, password] = process.argv.slice(2)
+  if (!rawUsername || !password) {
+    console.error('Usage: npx tsx scripts/seed-admins.ts <username> <password>')
+    process.exit(1)
   }
+  const username = rawUsername.trim().toLowerCase()
+
+  const { data: existing, error: lookupErr } = await db
+    .from('admins')
+    .select('id')
+    .eq('username', username)
+    .maybeSingle()
+  if (lookupErr) throw new Error(lookupErr.message)
+  if (existing) {
+    console.error(`Admin "${username}" already exists; not overwriting.`)
+    process.exit(1)
+  }
+
+  const { error } = await db
+    .from('admins')
+    .insert({ username, password_hash: bcrypt.hashSync(password, ROUNDS) })
+  if (error) {
+    // 23505: created between the lookup and the insert
+    console.error(`Failed to create ${username}:`, error.message)
+    process.exit(1)
+  }
+  console.log(`✓ ${username}`)
 }
 
 main().catch(console.error)

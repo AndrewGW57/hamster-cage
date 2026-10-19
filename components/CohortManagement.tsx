@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { adminFetch } from '@/lib/admin-fetch'
 
 interface CohortRow {
   id: string
@@ -286,7 +287,7 @@ export function CohortManagement() {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch('/api/update-cohort', {
+      const res = await adminFetch('/api/update-cohort', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: cohort.id, ...editState }),
@@ -315,7 +316,7 @@ export function CohortManagement() {
     setError('')
     const newStatus = cohort.status === 'active' ? 'closed' : 'active'
     try {
-      const res = await fetch('/api/update-cohort', {
+      const res = await adminFetch('/api/update-cohort', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: cohort.id, status: newStatus }),
@@ -338,7 +339,7 @@ export function CohortManagement() {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch('/api/create-cohort', {
+      const res = await adminFetch('/api/create-cohort', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newState),

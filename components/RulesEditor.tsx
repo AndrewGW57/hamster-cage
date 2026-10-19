@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { adminFetch } from '@/lib/admin-fetch'
 
 export function RulesEditor({ initialNotes }: { initialNotes: string }) {
   const [isAdmin, setIsAdmin] = useState(false)
@@ -36,7 +37,7 @@ export function RulesEditor({ initialNotes }: { initialNotes: string }) {
   async function handleSave() {
     setSaving(true)
     setError('')
-    const res = await fetch('/api/update-content', {
+    const res = await adminFetch('/api/update-content', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: 'rules_notes', value: draft }),

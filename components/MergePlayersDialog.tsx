@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { PlayerFlag } from '@/components/PlayerFlag'
+import { adminFetch } from '@/lib/admin-fetch'
 import type {
   MergeCohortStanding,
   MergePlayerSnapshot,
@@ -9,8 +10,6 @@ import type {
   MergeResult,
   MergeTableCounts,
 } from '@/types'
-
-const SESSION_EXPIRED = 'Your admin session has expired. Log out and log back in, then try again.'
 
 const TABLE_LABELS: Record<string, string> = {
   results: 'Results',
@@ -112,16 +111,12 @@ export function MergePlayersDialog({
     let cancelled = false
     async function loadPreview() {
       try {
-        const res = await fetch('/api/merge-players/preview', {
+        const res = await adminFetch('/api/merge-players/preview', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ player_a: playerIds[0], player_b: playerIds[1] }),
         })
         if (cancelled) return
-        if (res.status === 401) {
-          setError(SESSION_EXPIRED)
-          return
-        }
         const body = await res.json()
         if (!res.ok) throw new Error(body.error ?? 'Preview failed')
         if (!cancelled) setData(body as MergePreviewResponse)
@@ -151,7 +146,7 @@ export function MergePlayersDialog({
     setMerging(true)
     setError('')
     try {
-      const res = await fetch('/api/merge-players', {
+      const res = await adminFetch('/api/merge-players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -160,10 +155,6 @@ export function MergePlayersDialog({
           final_name: finalName,
         }),
       })
-      if (res.status === 401) {
-        setError(SESSION_EXPIRED)
-        return
-      }
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? 'Merge failed')
       onMerged(body.result as MergeResult)
