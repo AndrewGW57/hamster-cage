@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase'
 import { adminFetch, SESSION_EXPIRED_FLAG, SESSION_EXPIRED_MESSAGE } from '@/lib/admin-fetch'
 import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
 import { determineWeeklyWinner, determineWoodenSpoon } from '@/lib/weekly-winner'
+import { normalizeCountryCode } from '@/lib/flag-codes.mjs'
 import type { ParsedWeekData, MatchedLeaderboardEntry, MatchedCTPEntry, MatchedLDEntry } from '@/types'
 
 type AdminStep = 'auth' | 'upload' | 'review' | 'done'
@@ -27,7 +28,36 @@ interface WeekOption {
 interface PlayerOption {
   id: string
   display_name: string
+  country_code: string | null
   aliases: string[]
+}
+
+// What confirm-week will do with the flags read for one matched player (see
+// applyDetectedFlags in app/api/confirm-week/route.ts, which re-validates every code).
+type FlagStatus = {
+  kind: 'fill' | 'set' | 'none' | 'conflict'
+  current: string | null
+  codes: string[]
+}
+
+function flagPlan(data: ParsedWeekData, players: PlayerOption[]): Map<string, FlagStatus> {
+  const current = new Map(players.map((p) => [p.id, p.country_code]))
+  const codesByPlayer = new Map<string, Set<string>>()
+  for (const e of [...data.leaderboard, ...data.ctp, ...data.ld]) {
+    if (!e.matched_player_id) continue
+    if (!codesByPlayer.has(e.matched_player_id)) codesByPlayer.set(e.matched_player_id, new Set())
+    const code = normalizeCountryCode(e.country_code)
+    if (code) codesByPlayer.get(e.matched_player_id)!.add(code)
+  }
+  const plan = new Map<string, FlagStatus>()
+  for (const [id, set] of codesByPlayer) {
+    // New players may not be in `players` yet (loaded alongside the parse): treat as no code
+    const cur = current.get(id) ?? null
+    const codes = [...set].sort()
+    const kind = cur ? 'set' : codes.length === 0 ? 'none' : codes.length === 1 ? 'fill' : 'conflict'
+    plan.set(id, { kind, current: cur ? cur.toUpperCase() : null, codes })
+  }
+  return plan
 }
 
 function getOrphanIds(original: ParsedWeekData, current: ParsedWeekData): string[] {
@@ -198,7 +228,7 @@ export default function AdminPage() {
         adminFetch('/api/parse-week', { method: 'POST', body: formData }),
         supabase
           .from('players')
-          .select('id, display_name, player_aliases(alias)')
+          .select('id, display_name, country_code, player_aliases(alias)')
           .order('display_name'),
       ])
 
@@ -229,10 +259,11 @@ export default function AdminPage() {
       setUploadIds(parsed.upload_ids ?? [])
 
       setAllPlayers(
-        ((playersRes.data ?? []) as { id: string; display_name: string; player_aliases: { alias: string }[] }[]).map(
+        ((playersRes.data ?? []) as { id: string; display_name: string; country_code: string | null; player_aliases: { alias: string }[] }[]).map(
           (p) => ({
             id: p.id,
             display_name: p.display_name,
+            country_code: p.country_code ?? null,
             aliases: (p.player_aliases ?? []).map((a) => a.alias),
           })
         )
@@ -327,6 +358,30 @@ export default function AdminPage() {
         e.matched_player_id === oldPlayerId
           ? { ...e, matched_player_id: targetId, matched_name: targetName, is_new_player: false }
           : e
+      return { leaderboard: prev.leaderboard.map(update), ctp: prev.ctp.map(update), ld: prev.ld.map(update) }
+    })
+  }
+
+  // Edit one row's detected flag (empty clears it)
+  function setRowFlag(list: 'leaderboard' | 'ctp' | 'ld', index: number, code: string | null) {
+    setParsedData((prev) => {
+      if (!prev) return prev
+      const update = <T extends { country_code?: string | null }>(rows: T[]): T[] =>
+        rows.map((e, i) => (i === index ? { ...e, country_code: code } : e))
+      return {
+        leaderboard: list === 'leaderboard' ? update(prev.leaderboard) : prev.leaderboard,
+        ctp: list === 'ctp' ? update(prev.ctp) : prev.ctp,
+        ld: list === 'ld' ? update(prev.ld) : prev.ld,
+      }
+    })
+  }
+
+  // Resolve a flag conflict: set (or clear) the code on every row for that player
+  function setPlayerFlag(playerId: string, code: string | null) {
+    setParsedData((prev) => {
+      if (!prev) return prev
+      const update = <T extends { matched_player_id: string | null; country_code?: string | null }>(e: T): T =>
+        e.matched_player_id === playerId ? { ...e, country_code: code } : e
       return { leaderboard: prev.leaderboard.map(update), ctp: prev.ctp.map(update), ld: prev.ld.map(update) }
     })
   }
@@ -556,6 +611,12 @@ export default function AdminPage() {
       ?? allPlayers.find((p) => p.id === id)?.display_name
       ?? '?'
     const tieUnresolved = weeklyWinner.tied
+    const flags = flagPlan(parsedData, allPlayers)
+    const flagProps = (list: 'leaderboard' | 'ctp' | 'ld', index: number, playerId: string | null) => ({
+      flagStatus: playerId ? flags.get(playerId) : undefined,
+      onFlagChange: (code: string | null) => setRowFlag(list, index, code),
+      onFlagResolve: (code: string | null) => { if (playerId) setPlayerFlag(playerId, code) },
+    })
 
     return (
       <div className="min-h-screen bg-[#f9f9f9] text-gray-900 p-4">
@@ -577,6 +638,7 @@ export default function AdminPage() {
                   <th className="pb-2 text-left">#</th>
                   <th className="pb-2 text-left">Name (parsed)</th>
                   <th className="pb-2 text-left">Matched to</th>
+                  <th className="pb-2 text-left">Flag</th>
                   <th className="pb-2 text-right font-mono">Score</th>
                   <th className="pb-2 text-right font-mono">vs Par</th>
                   <th className="pb-2 text-right text-xs font-medium">DNF</th>
@@ -608,6 +670,7 @@ export default function AdminPage() {
                         }
                       }}
                       onDiscard={() => discardLeaderboardEntry(i)}
+                      {...flagProps('leaderboard', i, e.matched_player_id)}
                       allPlayers={allPlayers}
                       onRename={handleRename}
                       onRemap={handleRemap}
@@ -676,6 +739,7 @@ export default function AdminPage() {
                   ineligible={ineligiblePlayers.has(e.matched_player_id ?? '')}
                   isWinner={!ineligiblePlayers.has(e.matched_player_id ?? '') && e === effectiveWinner}
                   onDiscard={() => discardCtpEntry(i)}
+                  {...flagProps('ctp', i, e.matched_player_id)}
                   allPlayers={allPlayers}
                   onRename={handleRename}
                   onRemap={handleRemap}
@@ -694,6 +758,7 @@ export default function AdminPage() {
                   ineligible={ineligiblePlayers.has(e.matched_player_id ?? '')}
                   isWinner={!ineligiblePlayers.has(e.matched_player_id ?? '') && e === effectiveWinner}
                   onDiscard={() => discardLdEntry(i)}
+                  {...flagProps('ld', i, e.matched_player_id)}
                   allPlayers={allPlayers}
                   onRename={handleRename}
                   onRemap={handleRemap}
@@ -769,6 +834,9 @@ function ReviewLeaderboardRow({
   isDnf,
   onToggleDnf,
   onDiscard,
+  flagStatus,
+  onFlagChange,
+  onFlagResolve,
   allPlayers,
   onRename,
   onRemap,
@@ -779,6 +847,9 @@ function ReviewLeaderboardRow({
   isDnf: boolean
   onToggleDnf: () => void
   onDiscard: () => void
+  flagStatus: FlagStatus | undefined
+  onFlagChange: (code: string | null) => void
+  onFlagResolve: (code: string | null) => void
   allPlayers: PlayerOption[]
   onRename: (oldId: string, newName: string) => void
   onRemap: (oldId: string, targetId: string, targetName: string) => void
@@ -794,6 +865,9 @@ function ReviewLeaderboardRow({
           onRename={onRename}
           onRemap={onRemap}
         />
+      </td>
+      <td className="py-1.5">
+        <FlagCell code={entry.country_code} status={flagStatus} onChange={onFlagChange} onResolve={onFlagResolve} />
       </td>
       <td className="py-1.5 text-right font-mono text-amber-600 font-semibold">
         {isDnf ? '0' : entry.stableford_score}
@@ -836,6 +910,9 @@ function ReviewCTPRow({
   ineligible,
   isWinner,
   onDiscard,
+  flagStatus,
+  onFlagChange,
+  onFlagResolve,
   allPlayers,
   onRename,
   onRemap,
@@ -844,6 +921,9 @@ function ReviewCTPRow({
   ineligible: boolean
   isWinner: boolean
   onDiscard: () => void
+  flagStatus: FlagStatus | undefined
+  onFlagChange: (code: string | null) => void
+  onFlagResolve: (code: string | null) => void
   allPlayers: PlayerOption[]
   onRename: (oldId: string, newName: string) => void
   onRemap: (oldId: string, targetId: string, targetName: string) => void
@@ -854,6 +934,7 @@ function ReviewCTPRow({
         #{entry.position} {entry.name} | Hole {entry.hole} | {entry.distance}
       </span>
       <PlayerMatchCell entry={entry} allPlayers={allPlayers} onRename={onRename} onRemap={onRemap} />
+      <FlagCell code={entry.country_code} status={flagStatus} onChange={onFlagChange} onResolve={onFlagResolve} />
       {ineligible && <span className="text-xs font-medium text-amber-600 shrink-0">Ineligible</span>}
       {isWinner && <span className="text-xs font-medium text-green-600 shrink-0">Winner</span>}
       <button
@@ -872,6 +953,9 @@ function ReviewLDRow({
   ineligible,
   isWinner,
   onDiscard,
+  flagStatus,
+  onFlagChange,
+  onFlagResolve,
   allPlayers,
   onRename,
   onRemap,
@@ -880,6 +964,9 @@ function ReviewLDRow({
   ineligible: boolean
   isWinner: boolean
   onDiscard: () => void
+  flagStatus: FlagStatus | undefined
+  onFlagChange: (code: string | null) => void
+  onFlagResolve: (code: string | null) => void
   allPlayers: PlayerOption[]
   onRename: (oldId: string, newName: string) => void
   onRemap: (oldId: string, targetId: string, targetName: string) => void
@@ -890,6 +977,7 @@ function ReviewLDRow({
         #{entry.position} {entry.name} | Hole {entry.hole} | {entry.distance_yards}
       </span>
       <PlayerMatchCell entry={entry} allPlayers={allPlayers} onRename={onRename} onRemap={onRemap} />
+      <FlagCell code={entry.country_code} status={flagStatus} onChange={onFlagChange} onResolve={onFlagResolve} />
       {ineligible && <span className="text-xs font-medium text-amber-600 shrink-0">Ineligible</span>}
       {isWinner && <span className="text-xs font-medium text-green-600 shrink-0">Winner</span>}
       <button
@@ -900,6 +988,73 @@ function ReviewLDRow({
         <X size={14} />
       </button>
     </div>
+  )
+}
+
+// Detected flag for one review row: editable code, plus what confirm will do for that player.
+// Flags never block confirm; a conflict is simply not applied.
+function FlagCell({
+  code,
+  status,
+  onChange,
+  onResolve,
+}: {
+  code: string | null | undefined
+  status: FlagStatus | undefined
+  onChange: (code: string | null) => void
+  onResolve: (code: string | null) => void
+}) {
+  const valid = normalizeCountryCode(code)
+  return (
+    <span className={`inline-flex flex-wrap items-center gap-1.5 shrink-0 rounded px-1 ${status?.kind === 'fill' ? 'bg-amber-50' : ''}`}>
+      {valid ? (
+        <img src={`https://flagcdn.com/16x12/${valid.toLowerCase()}.png`} width={16} height={12} alt={valid} className="inline-block w-4 h-3" />
+      ) : (
+        <span className="inline-block w-4 h-3 bg-gray-200 rounded-sm" />
+      )}
+      <input
+        type="text"
+        value={code ?? ''}
+        onChange={(e) => {
+          const v = e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2)
+          onChange(v || null)
+        }}
+        maxLength={2}
+        placeholder="—"
+        aria-label="Detected country code"
+        className="w-9 border border-gray-300 rounded px-1 py-0.5 text-xs font-mono uppercase focus:outline-none focus:border-amber-400 bg-white"
+      />
+      {code && !valid && <span className="text-xs text-red-500">not a listed code</span>}
+      {status?.kind === 'fill' && (
+        <span className="text-xs font-medium text-amber-700">will fill {status.codes[0]}</span>
+      )}
+      {status?.kind === 'set' && (
+        <span className="text-xs text-gray-400">already {status.current}</span>
+      )}
+      {status?.kind === 'none' && <span className="text-xs text-gray-300">none detected</span>}
+      {status?.kind === 'conflict' && (
+        <span className="inline-flex flex-wrap items-center gap-1 text-xs text-amber-700">
+          conflict ({status.codes.join(' / ')}), not applied:
+          {status.codes.map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => onResolve(c)}
+              className="border border-amber-300 rounded px-1 hover:bg-amber-100"
+            >
+              use {c}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => onResolve(null)}
+            className="border border-gray-300 text-gray-500 rounded px-1 hover:bg-gray-100"
+          >
+            clear
+          </button>
+        </span>
+      )}
+    </span>
   )
 }
 

@@ -3,7 +3,55 @@ import { createServiceClient } from '@/lib/supabase'
 import { requireAdmin } from '@/lib/admin-session'
 import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
 import { determineWeeklyWinner } from '@/lib/weekly-winner'
+import { normalizeCountryCode } from '@/lib/flag-codes.mjs'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ConfirmWeekPayload } from '@/types'
+
+type FlaggedEntry = { matched_player_id: string | null; country_code?: string | null }
+
+// Fill players.country_code from flags read off the screenshots. One code per player across
+// all three lists; players whose rows disagree are skipped. The null guard is inside the
+// update, so a code that is already set is never overwritten. Never throws: a flag problem
+// must not fail the confirm.
+async function applyDetectedFlags(db: SupabaseClient, entries: FlaggedEntry[]): Promise<number> {
+  try {
+    const codesByPlayer = new Map<string, Set<string>>()
+    for (const e of entries) {
+      const code = normalizeCountryCode(e.country_code)
+      if (!e.matched_player_id || !code) continue
+      if (!codesByPlayer.has(e.matched_player_id)) codesByPlayer.set(e.matched_player_id, new Set())
+      codesByPlayer.get(e.matched_player_id)!.add(code)
+    }
+
+    const idsByCode = new Map<string, string[]>()
+    for (const [playerId, codes] of codesByPlayer) {
+      if (codes.size !== 1) continue
+      const [code] = codes
+      idsByCode.set(code, [...(idsByCode.get(code) ?? []), playerId])
+    }
+
+    const outcomes = await Promise.allSettled(
+      [...idsByCode].map(([code, ids]) =>
+        db.from('players').update({ country_code: code }).in('id', ids).is('country_code', null).select('id')
+      )
+    )
+    let applied = 0
+    for (const o of outcomes) {
+      if (o.status === 'rejected') console.error('[confirm-week] flag update failed', o.reason)
+      else if (o.value.error) console.error('[confirm-week] flag update failed', o.value.error.message)
+      else applied += o.value.data?.length ?? 0
+    }
+    return applied
+  } catch (err) {
+    console.error('[confirm-week] flag application failed', err)
+    return 0
+  }
+}
+
+// parsed_json keeps exactly the shape it had before flags were parsed
+function withoutCountryCode<T extends { country_code?: string | null }>(rows: T[]): Omit<T, 'country_code'>[] {
+  return rows.map(({ country_code: _flag, ...rest }) => rest)
+}
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin(req)
@@ -129,14 +177,17 @@ export async function POST(req: NextRequest) {
         ? db.from('uploads').update({ confirmed: true }).in('id', upload_ids)
         : Promise.resolve(),
       ctp.length > 0
-        ? db.from('uploads').update({ parsed_json: ctp }).eq('week_id', week_id).eq('image_type', 'ctp')
+        ? db.from('uploads').update({ parsed_json: withoutCountryCode(ctp) }).eq('week_id', week_id).eq('image_type', 'ctp')
         : Promise.resolve(),
       ld.length > 0
-        ? db.from('uploads').update({ parsed_json: ld }).eq('week_id', week_id).eq('image_type', 'ld')
+        ? db.from('uploads').update({ parsed_json: withoutCountryCode(ld) }).eq('week_id', week_id).eq('image_type', 'ld')
         : Promise.resolve(),
     ])
 
-    return NextResponse.json({ success: true })
+    // Country flags last, after every scoring write has succeeded
+    const flagsApplied = await applyDetectedFlags(db, [...leaderboard, ...ctp, ...ld])
+
+    return NextResponse.json({ success: true, flags_applied: flagsApplied })
   } catch (err) {
     console.error('[confirm-week]', err)
     return NextResponse.json(

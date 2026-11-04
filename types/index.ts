@@ -148,6 +148,7 @@ export interface ParsedLeaderboardEntry {
   score_vs_par: number | null  // null for DNF
   dnf: boolean
   // thru is extracted by Vision for DNF detection but never persisted
+  country_code?: string | null  // flag read from the screenshot; validated, uppercase
 }
 
 export interface ParsedCTPEntry {
@@ -155,6 +156,7 @@ export interface ParsedCTPEntry {
   position: number
   hole: number
   distance: string
+  country_code?: string | null
 }
 
 export interface ParsedLDEntry {
@@ -162,6 +164,7 @@ export interface ParsedLDEntry {
   position: number
   hole: number
   distance_yards: string
+  country_code?: string | null
 }
 
 export interface ParsedWeekData {
