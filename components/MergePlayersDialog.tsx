@@ -15,6 +15,7 @@ const TABLE_LABELS: Record<string, string> = {
   results: 'Results',
   bonus_points: 'Bonus points',
   side_contests: 'Side contests',
+  hole_in_ones: 'Hole-in-ones',
   player_aliases: 'Aliases',
 }
 
@@ -55,7 +56,7 @@ function PlayerColumn({
         {Object.entries(TABLE_LABELS).map(([key, text]) => (
           <div key={key} className="flex justify-between">
             <span className="text-gray-500">{text}</span>
-            <span className="font-mono text-gray-700">{counts[key as keyof MergeTableCounts]}</span>
+            <span className="font-mono text-gray-700">{counts[key as keyof MergeTableCounts] ?? 0}</span>
           </div>
         ))}
       </div>

@@ -337,6 +337,7 @@ function PlayerRows({
                   {ws.has_winner && <span className="ml-0.5 text-xs" title="Weekly winner">🏆</span>}
                   {ws.has_ctp && <span className="ml-0.5 text-xs" title="Closest to Pin">📍</span>}
                   {ws.has_ld && <span className="ml-0.5 text-xs" title="Longest Drive">🏌️</span>}
+                  {ws.has_hole_in_one && <span className="ml-0.5 text-xs" title="Hole-in-One">♠️</span>}
                   {ws.has_wooden_spoon && <span className="ml-0.5 text-xs" title="Wooden Spoon">🥄</span>}
                 </>
               ) : (

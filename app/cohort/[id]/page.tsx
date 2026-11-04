@@ -30,6 +30,7 @@ export type WeeklyScoreMap = Record<
     has_ld: boolean
     has_winner: boolean
     has_wooden_spoon: boolean
+    has_hole_in_one: boolean
   }>
 >
 
@@ -66,7 +67,7 @@ export default async function CohortPage({
   const weekIds = weeks.map((w) => w.id)
   const weekIdToLocal = new Map(weeks.map((w) => [w.id, w.local_week_number]))
 
-  const [{ data: resultsRaw }, { data: contestsRaw }, { data: bonusRaw }] =
+  const [{ data: resultsRaw }, { data: contestsRaw }, { data: bonusRaw }, { data: acesRaw }] =
     weekIds.length > 0
       ? await Promise.all([
           db
@@ -81,8 +82,12 @@ export default async function CohortPage({
             .from('bonus_points')
             .select('player_id, bonus_type, week_id')
             .eq('cohort_id', cohortId),
+          db
+            .from('hole_in_ones')
+            .select('week_id, player_id')
+            .in('week_id', weekIds),
         ])
-      : [{ data: [] }, { data: [] }, { data: [] }]
+      : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }]
 
   // Next upcoming week (no results yet, and not a bye)
   const weeksWithResults = new Set((resultsRaw ?? []).map((r) => r.week_id))
@@ -98,7 +103,12 @@ export default async function CohortPage({
       has_ld: false,
       has_winner: false,
       has_wooden_spoon: false,
+      has_hole_in_one: false,
     }
+  }
+  for (const a of acesRaw ?? []) {
+    const entry = weeklyScoreMap[a.player_id]?.[a.week_id]
+    if (entry) entry.has_hole_in_one = true
   }
   for (const c of contestsRaw ?? []) {
     const entry = weeklyScoreMap[c.player_id]?.[c.week_id]

@@ -6,6 +6,7 @@ import { UploadZone } from '@/components/UploadZone'
 import { PlayerManagement } from '@/components/PlayerManagement'
 import { CohortManagement } from '@/components/CohortManagement'
 import { AdminManagement } from '@/components/AdminManagement'
+import { HoleInOneManagement } from '@/components/HoleInOneManagement'
 import { supabase } from '@/lib/supabase'
 import { adminFetch, SESSION_EXPIRED_FLAG, SESSION_EXPIRED_MESSAGE } from '@/lib/admin-fetch'
 import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
@@ -510,6 +511,7 @@ export default function AdminPage() {
           </form>
 
           <PlayerManagement />
+          <HoleInOneManagement />
           <CohortManagement />
           <AdminManagement />
           <a

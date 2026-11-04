@@ -110,6 +110,13 @@ export interface WeeklyDetail {
   // tie (no hole-by-hole scores exist to run a real countback). When true, every
   // player in `results` with is_weekly_winner set shared the win/bonus point.
   winner_tied?: boolean
+  // Entered by hand from the admin page — a badge only, no points.
+  hole_in_ones?: HoleInOneDetail[]
+}
+
+export interface HoleInOneDetail {
+  player_name: string
+  hole: number | null
 }
 
 export interface WeeklyResultRow {
@@ -212,11 +219,12 @@ export interface MergeTableCounts {
   results: number
   bonus_points: number
   side_contests: number
+  hole_in_ones: number
   player_aliases: number
 }
 
 export interface MergeCollision {
-  table: 'results' | 'bonus_points' | 'side_contests'
+  table: 'results' | 'bonus_points' | 'side_contests' | 'hole_in_ones'
   week_id: string
   cohort: string | null
   week_number: number

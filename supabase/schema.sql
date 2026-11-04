@@ -30,6 +30,8 @@
 --             Live constraint check the same day found drift, now reflected below:
 --               player_aliases is UNIQUE (alias) globally, not unique (player_id, alias);
 --               side_contests has UNIQUE (week_id, contest), previously undocumented.
+-- 2026-11-04  supabase/migrations/20261104_hole_in_ones.sql — hole_in_ones table (manual
+--             Hole-in-One badge, no points) + merge_players() updated to move it.
 -- =====================================================================
 
 -- Enable UUID extension
@@ -89,6 +91,17 @@ create table if not exists side_contests (
   unique (week_id, contest)         -- live: side_contests_week_id_contest_key (confirmed 2026-10-19)
 );
 
+-- Hole-in-ones (entered by hand from the admin page — Trackman exports don't record them).
+-- A badge only: no bonus points.
+create table if not exists hole_in_ones (
+  id uuid primary key default gen_random_uuid(),
+  week_id uuid not null references weeks(id) on delete cascade,
+  player_id uuid not null references players(id) on delete cascade,
+  hole integer check (hole between 1 and 18),
+  created_at timestamptz not null default now(),
+  unique (week_id, player_id)
+);
+
 -- Uploads (tracks which screenshots have been processed)
 create table if not exists uploads (
   id uuid primary key default gen_random_uuid(),
@@ -112,6 +125,7 @@ alter table weeks enable row level security;
 alter table results enable row level security;
 alter table side_contests enable row level security;
 alter table uploads enable row level security;
+alter table hole_in_ones enable row level security;
 
 -- Public read policies
 create policy "Public read players" on players for select using (true);
@@ -119,6 +133,7 @@ create policy "Public read weeks" on weeks for select using (true);
 create policy "Public read results" on results for select using (true);
 create policy "Public read side_contests" on side_contests for select using (true);
 create policy "Public read player_aliases" on player_aliases for select using (true);
+create policy "Public read hole_in_ones" on hole_in_ones for select using (true);
 
 -- Service role bypasses RLS — no write policies needed for anon.
 

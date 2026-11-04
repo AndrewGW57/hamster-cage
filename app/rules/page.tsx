@@ -234,6 +234,10 @@ export default async function RulesPage() {
                 🥄 Wooden Spoon marks the lowest score of the week on the leaderboard grid — a badge
                 of shame only, it carries no points.
               </li>
+              <li>
+                ♠️ Hole-in-One marks an ace on the leaderboard grid. Trackman doesn&apos;t record
+                these, so they&apos;re added by hand — bragging rights only, no points.
+              </li>
             </ul>
           </div>
 

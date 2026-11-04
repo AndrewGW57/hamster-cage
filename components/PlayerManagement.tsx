@@ -239,7 +239,7 @@ export function PlayerManagement() {
     const m = result.moved_counts
     setMergeNotice(
       `Merged into ${result.survivor.display_name}: moved ${m.results} results, ${m.bonus_points} bonus points, ` +
-        `${m.side_contests} side contests, ${m.player_aliases} aliases` +
+        `${m.side_contests} side contests, ${m.hole_in_ones ?? 0} hole-in-ones, ${m.player_aliases} aliases` +
         (result.alias_added ? `; added alias "${result.alias_added}"` : '')
     )
     fetchPlayers()

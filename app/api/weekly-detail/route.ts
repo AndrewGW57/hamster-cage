@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
     { data: players },
     { data: uploads },
     { data: bonusRows },
+    { data: aces },
   ] = await Promise.all([
     db.from('weeks').select('*').eq('id', week_id).single(),
     db
@@ -33,6 +34,7 @@ export async function GET(req: NextRequest) {
       .eq('confirmed', true)
       .in('image_type', ['ctp', 'ld']),
     db.from('bonus_points').select('player_id, points, bonus_type').eq('week_id', week_id),
+    db.from('hole_in_ones').select('player_id, hole').eq('week_id', week_id),
   ])
 
   if (!week) return NextResponse.json({ error: 'Week not found' }, { status: 404 })
@@ -142,6 +144,10 @@ export async function GET(req: NextRequest) {
     course_chooser: courseChooser,
     is_curveball: isCurveballWeek(week.week_number),
     winner_tied: winnerTied,
+    hole_in_ones: (aces ?? []).map((a) => ({
+      player_name: playerMap[a.player_id] ?? '',
+      hole: a.hole,
+    })),
   }
 
   return NextResponse.json(detail)

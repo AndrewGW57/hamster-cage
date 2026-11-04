@@ -50,9 +50,10 @@ export default async function HomePage() {
   }[] = []
   let contestsRaw: { week_id: string; player_id: string; contest: string }[] = []
   let bonusRaw: { player_id: string; bonus_type: string; week_id: string }[] = []
+  let acesRaw: { week_id: string; player_id: string }[] = []
 
   if (activeCohort) {
-    const [leaderboard, results, contests, bonus] = await Promise.all([
+    const [leaderboard, results, contests, bonus, aces] = await Promise.all([
       getCohortLeaderboard(activeCohort.id),
       weekIds.length > 0
         ? db
@@ -64,11 +65,15 @@ export default async function HomePage() {
         ? db.from('side_contests').select('week_id, player_id, contest').in('week_id', weekIds)
         : Promise.resolve({ data: [] as typeof contestsRaw }),
       db.from('bonus_points').select('player_id, bonus_type, week_id').eq('cohort_id', activeCohort.id),
+      weekIds.length > 0
+        ? db.from('hole_in_ones').select('week_id, player_id').in('week_id', weekIds)
+        : Promise.resolve({ data: [] as typeof acesRaw }),
     ])
     rows = leaderboard
     resultsRaw = results.data ?? []
     contestsRaw = contests.data ?? []
     bonusRaw = bonus.data ?? []
+    acesRaw = aces.data ?? []
   }
 
   // Weekly score map
@@ -81,7 +86,12 @@ export default async function HomePage() {
       has_ld: false,
       has_winner: false,
       has_wooden_spoon: false,
+      has_hole_in_one: false,
     }
+  }
+  for (const a of acesRaw) {
+    const entry = weeklyScoreMap[a.player_id]?.[a.week_id]
+    if (entry) entry.has_hole_in_one = true
   }
   for (const c of contestsRaw) {
     const entry = weeklyScoreMap[c.player_id]?.[c.week_id]

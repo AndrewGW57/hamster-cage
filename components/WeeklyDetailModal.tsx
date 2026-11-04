@@ -126,6 +126,8 @@ function ContestCard({
 
 export function WeeklyDetailModal({ detail, onClose }: Props) {
   const { week, results, ctp, ld, ctp_full_list, ld_full_list } = detail
+  const aces = detail.hole_in_ones ?? []
+  const aceNames = new Set(aces.map((a) => a.player_name))
   const backdropRef = useRef<HTMLDivElement>(null)
 
   // Ranks by the same number the Total column shows (capped score + bonus),
@@ -224,6 +226,18 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
           </div>
         )}
 
+        {/* Hole-in-ones (entered by hand — Trackman doesn't record them) */}
+        {!week.is_bye && aces.length > 0 && (
+          <div className="px-3 sm:px-4 pt-3 pb-0">
+            <div className="bg-gray-900 border border-gray-900 rounded-lg px-3 py-2 text-xs sm:text-sm font-medium text-white">
+              ♠️ Hole-in-One!{' '}
+              {aces
+                .map((a) => (a.hole ? `${a.player_name} (hole ${a.hole})` : a.player_name))
+                .join(', ')}
+            </div>
+          </div>
+        )}
+
         {/* Results table */}
         {!week.is_bye && (
         <div className="p-4">
@@ -256,6 +270,9 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
                     )}
                     {r.is_weekly_winner && (
                       <span className="ml-1.5 text-sm align-middle" title="Weekly winner">🏆</span>
+                    )}
+                    {aceNames.has(r.display_name) && (
+                      <span className="ml-1.5 text-sm align-middle" title="Hole-in-One">♠️</span>
                     )}
                     {ctpWinner && r.display_name === ctpWinner && (
                       <Image src="/ctp-icon.png" alt="CTP" height={20} width={20} style={{ display: 'inline', marginLeft: '6px' }} />
