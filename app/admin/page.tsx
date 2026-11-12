@@ -12,6 +12,7 @@ import { adminFetch, SESSION_EXPIRED_FLAG, SESSION_EXPIRED_MESSAGE } from '@/lib
 import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
 import { determineWeeklyWinner, determineWoodenSpoon, max40Group, usesMax40GrossRule } from '@/lib/weekly-winner'
 import { normalizeCountryCode } from '@/lib/flag-codes.mjs'
+import { resolveReviewWeek } from '@/lib/review-week'
 import type { ParsedWeekData, MatchedLeaderboardEntry, MatchedCTPEntry, MatchedLDEntry } from '@/types'
 
 type AdminStep = 'auth' | 'upload' | 'review' | 'done'
@@ -103,6 +104,9 @@ export default function AdminPage() {
   const [originalParsedData, setOriginalParsedData] = useState<ParsedWeekData | null>(null)
   const [allPlayers, setAllPlayers] = useState<PlayerOption[]>([])
   const [reviewWeekId, setReviewWeekId] = useState<string>('')
+  // Date + week number for the week under review, as parse-week returned them. Kept apart
+  // from `weeks`, which doesn't include a week parse-week has just created.
+  const [reviewWeekFromParse, setReviewWeekFromParse] = useState<{ week_date?: unknown; week_number?: unknown } | null>(null)
   const [uploadIds, setUploadIds] = useState<string[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [parseError, setParseError] = useState('')
@@ -260,6 +264,7 @@ export default function AdminPage() {
       setParsedData(weekData)
       setOriginalParsedData({ leaderboard: parsed.leaderboard, ctp: parsed.ctp, ld: parsed.ld })
       setReviewWeekId(parsed.week_id)
+      setReviewWeekFromParse({ week_date: parsed.week_date, week_number: parsed.week_number })
       setUploadIds(parsed.upload_ids ?? [])
 
       setAllPlayers(
@@ -605,8 +610,12 @@ export default function AdminPage() {
     }
 
     // Weekly winner / Wooden Spoon preview — Max 40 rule (see lib/weekly-winner.ts).
-    const reviewWeek = weeks.find((w) => w.id === reviewWeekId)
-    const reviewCurveball = reviewWeek ? isCurveballWeek(reviewWeek.week_number) : false
+    // Week date and number come from parse-week; the cached weeks list is only a cross-check
+    // (see lib/review-week.ts). No date means no preview and no confirm — never pre-cutover.
+    const reviewWeekResolution = resolveReviewWeek(reviewWeekFromParse, weeks.find((w) => w.id === reviewWeekId))
+    const reviewWeekDate = reviewWeekResolution.ok ? reviewWeekResolution.week.date : null
+    const weekDateError = reviewWeekResolution.ok ? null : reviewWeekResolution.error
+    const reviewCurveball = reviewWeekResolution.ok ? isCurveballWeek(reviewWeekResolution.week.weekNumber) : false
     const winnerForRules = parsedData.leaderboard
       .filter((e) => e.matched_player_id)
       .map((e) => {
@@ -621,19 +630,18 @@ export default function AdminPage() {
           gross_score: isDnf ? null : parseGross(grossInputs[pid] ?? ''),
         }
       })
-    const reviewWeekDate = reviewWeek?.date ?? ''
     // Gross inputs show only when the new rule applies AND two or more eligible players are on 40+.
-    const grossGroup = usesMax40GrossRule(reviewWeekDate) ? max40Group(winnerForRules) : []
+    const grossGroup = reviewWeekDate && usesMax40GrossRule(reviewWeekDate) ? max40Group(winnerForRules) : []
     const askForGross = grossGroup.length >= 2
-    const weeklyWinner = determineWeeklyWinner(winnerForRules, reviewWeekDate, manualWinnerId)
+    const weeklyWinner = reviewWeekDate ? determineWeeklyWinner(winnerForRules, reviewWeekDate, manualWinnerId) : null
     const weeklySpoon = determineWoodenSpoon(winnerForRules)
     const weeklyWinnerPts = weeklyWinnerBonusPoints(reviewCurveball)
     const nameForPlayerId = (id: string) =>
       parsedData.leaderboard.find((e) => e.matched_player_id === id)?.matched_name
       ?? allPlayers.find((p) => p.id === id)?.display_name
       ?? '?'
-    const tieUnresolved = weeklyWinner.tied
-    const needsGross = weeklyWinner.needsGross
+    const tieUnresolved = weeklyWinner?.tied ?? false
+    const needsGross = weeklyWinner?.needsGross ?? false
     const flags = flagPlan(parsedData, allPlayers)
     const flagProps = (list: 'leaderboard' | 'ctp' | 'ld', index: number, playerId: string | null) => ({
       flagStatus: playerId ? flags.get(playerId) : undefined,
@@ -704,6 +712,11 @@ export default function AdminPage() {
             </table>
           </Section>
 
+          {!weeklyWinner ? (
+            <div role="alert" className="mb-6 p-3 rounded-lg text-sm border bg-red-50 border-red-200 text-red-700 font-medium">
+              {weekDateError}
+            </div>
+          ) : (
           <div className={`mb-6 p-3 rounded-lg text-sm border ${
             tieUnresolved ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'
           }`}>
@@ -789,6 +802,7 @@ export default function AdminPage() {
               </div>
             )}
           </div>
+          )}
 
           <Section title="Closest to Pin">
             {(() => {
@@ -839,15 +853,17 @@ export default function AdminPage() {
             </button>
             <button
               onClick={handleConfirm}
-              disabled={submitting || tieUnresolved}
+              disabled={submitting || tieUnresolved || !weeklyWinner}
               title={
-                needsGross
+                !weeklyWinner
+                  ? weekDateError ?? undefined
+                  : needsGross
                   ? 'Enter a gross score for every player on 40+ before confirming'
                   : tieUnresolved ? 'Pick a weekly winner above before confirming' : undefined
               }
               className="flex-1 bg-amber-400 hover:bg-amber-500 disabled:opacity-50 text-black font-semibold py-3 rounded-lg transition-colors"
             >
-              {submitting ? 'Saving…' : needsGross ? 'Enter gross scores to continue' : tieUnresolved ? 'Resolve tie to continue' : 'Confirm & Save'}
+              {submitting ? 'Saving…' : !weeklyWinner ? 'Reload to continue' : needsGross ? 'Enter gross scores to continue' : tieUnresolved ? 'Resolve tie to continue' : 'Confirm & Save'}
             </button>
           </div>
         </div>

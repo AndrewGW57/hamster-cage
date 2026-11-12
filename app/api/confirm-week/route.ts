@@ -77,10 +77,15 @@ export async function POST(req: NextRequest) {
 
     // Fetch week for cohort_id + week_number (Curveball Weeks are weeks 3, 6, 9, 12 — see lib/rules.ts)
     // and date (which weekly-winner rule applies — see lib/weekly-winner.ts)
-    const { data: weekRow } = await db.from('weeks').select('cohort_id, week_number, date').eq('id', week_id).single()
-    const cohortId: string | null = weekRow?.cohort_id ?? null
-    const isCurveball = weekRow ? isCurveballWeek(weekRow.week_number) : false
-    const weekDate: string = weekRow?.date ?? ''
+    const { data: weekRow } = await db.from('weeks').select('cohort_id, week_number, date').eq('id', week_id).maybeSingle()
+    // The date picks the weekly-winner rule, so a missing week or date is refused outright,
+    // never treated as pre-cutover.
+    if (!weekRow || !weekRow.date) {
+      return NextResponse.json({ error: 'Week not found or has no date — reload the admin page and try again.' }, { status: 400 })
+    }
+    const cohortId: string | null = weekRow.cohort_id ?? null
+    const isCurveball = isCurveballWeek(weekRow.week_number)
+    const weekDate: string = weekRow.date
 
     // Upsert results
     const resultRows = leaderboard

@@ -58,9 +58,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing image files' }, { status: 400 })
     }
 
-    // Resolve or create week — all writes use service role
+    // Resolve or create week — all writes use service role. The week's date and number go
+    // back to the review screen, which needs the date to pick the weekly-winner rule.
+    let weekDate: string
+    let weekNumber: number
     if (weekIdField && weekIdField !== 'new') {
-      weekId = weekIdField
+      const { data: existingWeek } = await db
+        .from('weeks')
+        .select('id, date, week_number')
+        .eq('id', weekIdField)
+        .maybeSingle()
+      if (!existingWeek) {
+        return NextResponse.json({ error: 'Week not found' }, { status: 400 })
+      }
+      weekId = existingWeek.id
+      weekDate = existingWeek.date
+      weekNumber = existingWeek.week_number
     } else {
       const courseName = formData.get('course_name') as string | null
       const date = formData.get('date') as string | null
@@ -86,6 +99,8 @@ export async function POST(req: NextRequest) {
       if (weekErr || !newWeek) throw new Error(`Failed to create week: ${weekErr?.message}`)
 
       weekId = newWeek.id
+      weekDate = newWeek.date
+      weekNumber = newWeek.week_number
       weekCreatedHere = true
     }
 
@@ -223,6 +238,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       week_id: weekId,
+      week_date: weekDate,
+      week_number: weekNumber,
       leaderboard: matchedLB,
       ctp: matchedCTP,
       ld: matchedLD,
