@@ -11,6 +11,16 @@
 
 export const MAX_STABLEFORD_POINTS = 40
 
+// Rule cutover dates, compared against weeks.date (YYYY-MM-DD). Gated on date, not
+// week_number, because week_number resets per cohort. Weeks before each date keep the
+// old behaviour so past results don't change.
+
+/** First week whose weekly detail popup uses the capped-points-then-position sort (components/WeeklyDetailModal.tsx). */
+export const NEW_TIEBREAK_FROM_DATE = '2026-10-07'
+
+/** First week where a 40+ weekly-winner tie is broken by lowest gross strokes (results.gross_score) — see lib/weekly-winner.ts. */
+export const MAX40_GROSS_TIEBREAK_FROM_DATE = '2026-11-11'
+
 /** Weeks 3, 6, 9 and 12 of each cohort/season are Curveball Weeks. */
 export const CURVEBALL_WEEK_NUMBERS = [3, 6, 9, 12] as const
 

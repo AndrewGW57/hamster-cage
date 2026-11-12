@@ -166,9 +166,9 @@ export default async function RulesPage() {
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 leading-relaxed mb-3">
               <strong>Max 40:</strong> the most points that count toward your total in any single
               week is 40. Score higher and it is very well played, but 40 is what goes into the
-              books. If two or more players are tied on 40 or more, the weekly winner is whoever
-              has the lowest gross score. Ties below 40 points go to standard countback: back 9,
-              back 6, back 3.
+              books. If two or more players score 40 or more points in a week, the lowest gross
+              score wins the week. Ties below 40 points go to standard countback: back 9, back 6,
+              back 3.
             </div>
             <div className="bg-purple-50 border border-purple-200 rounded-lg px-4 py-3 text-sm text-purple-800 leading-relaxed mb-3">
               <strong>🎲 Curveball Weeks:</strong> weeks 3, 6, 9 and 12 of each cohort throw

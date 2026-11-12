@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
 import { PlayerFlag } from './PlayerFlag'
-import { MAX_STABLEFORD_POINTS } from '@/lib/rules'
+import { MAX_STABLEFORD_POINTS, NEW_TIEBREAK_FROM_DATE } from '@/lib/rules'
 import type { WeeklyDetail, CtpFullEntry, LdFullEntry } from '@/types'
 
 interface Props {
@@ -12,11 +12,6 @@ interface Props {
 }
 
 const ROW_TINT = ['bg-[#fef9c3]', 'bg-[#f1f5f9]', 'bg-[#fef3e2]']
-
-// First week (by weeks.date, YYYY-MM-DD) using the new tiebreak order below.
-// Weeks before this date deliberately keep the old order so past results
-// pages don't change. Gated on date, not week_number, which resets per cohort.
-const NEW_TIEBREAK_FROM_DATE = '2026-10-07'
 
 function formatDate(dateStr: string): string {
   const parts = dateStr.split('-')
@@ -133,10 +128,11 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
   // Ranks by the same number the Total column shows (capped score + bonus),
   // not raw stableford_score — otherwise a player over the Max 40 cap can
   // outrank the actual winner here while the Total column says otherwise.
-  // From NEW_TIEBREAK_FROM_DATE, ties fall back to capped points (higher first),
+  // From NEW_TIEBREAK_FROM_DATE (lib/rules.ts), ties fall back to capped points (higher first),
   // then Trackman's position (lower first), then original order. score_vs_par is
   // not used there: the stored value is points relative to par (higher is
-  // better), not gross. Earlier weeks keep the old order: total, then
+  // better), not gross. Gross strokes live in results.gross_score and are only
+  // used by the weekly-winner rule (lib/weekly-winner.ts). Earlier weeks keep the old order: total, then
   // score_vs_par lowest first, then original order.
   const cappedPoints = (r: typeof results[0]) => Math.min(r.stableford_score, MAX_STABLEFORD_POINTS)
   const weeklyTotal = (r: typeof results[0]) => cappedPoints(r) + r.bonus_points
@@ -221,7 +217,7 @@ export function WeeklyDetailModal({ detail, onClose }: Props) {
         {!week.is_bye && !detail.course_chooser && detail.winner_tied && (
           <div className="px-3 sm:px-4 pt-3 pb-0">
             <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs sm:text-sm font-medium text-gray-600">
-              🏆 Weekly winner is tied — needs a manual countback to settle (see 🏆 marks below). Everyone shown has been credited for now.
+              🏆 Weekly winner is tied and still to be settled by the admin (see 🏆 marks below). Everyone shown has been credited for now.
             </div>
           </div>
         )}

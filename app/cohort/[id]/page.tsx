@@ -72,7 +72,7 @@ export default async function CohortPage({
       ? await Promise.all([
           db
             .from('results')
-            .select('week_id, player_id, stableford_score, score_vs_par, position, ineligible_for_bonus')
+            .select('week_id, player_id, stableford_score, score_vs_par, position, ineligible_for_bonus, gross_score')
             .in('week_id', weekIds),
           db
             .from('side_contests')
@@ -126,6 +126,7 @@ export default async function CohortPage({
     resultsByWeek.set(r.week_id, arr)
   }
   const spoonIdsByWeek = new Map<string, string[]>()
+  const weekDateById = new Map(weeks.map((w) => [w.id, w.date]))
   for (const [wId, weekResults] of resultsByWeek) {
     const forRules = (weekResults ?? []).map((r) => ({
       player_id: r.player_id,
@@ -133,8 +134,9 @@ export default async function CohortPage({
       score_vs_par: r.score_vs_par,
       position: r.position,
       ineligible_for_bonus: r.ineligible_for_bonus ?? false,
+      gross_score: r.gross_score ?? null,
     }))
-    const winner = determineWeeklyWinner(forRules)
+    const winner = determineWeeklyWinner(forRules, weekDateById.get(wId) ?? '')
     const spoon = determineWoodenSpoon(forRules)
     spoonIdsByWeek.set(wId, spoon.spoonIds)
     for (const pid of winner.winnerIds) {

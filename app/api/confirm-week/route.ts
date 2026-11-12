@@ -59,9 +59,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const payload: ConfirmWeekPayload = await req.json()
-    const { week_id, leaderboard, ctp, ld, upload_ids, ineligible_players, dnf_players, manual_winner_player_id } = payload
+    const { week_id, leaderboard, ctp, ld, upload_ids, ineligible_players, dnf_players, manual_winner_player_id, gross_scores } = payload
     const ineligibleSet = new Set(ineligible_players ?? [])
     const dnfSet = new Set(dnf_players ?? [])
+    // Gross strokes typed in on the review screen for 40+ players. Anything that isn't a
+    // positive whole number is dropped, so it reads as missing rather than as a score.
+    const grossMap = new Map<string, number>()
+    for (const [pid, g] of Object.entries(gross_scores ?? {})) {
+      if (typeof g === 'number' && Number.isInteger(g) && g > 0) grossMap.set(pid, g)
+    }
 
     if (!week_id || !leaderboard?.length) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -70,9 +76,11 @@ export async function POST(req: NextRequest) {
     const db = createServiceClient()
 
     // Fetch week for cohort_id + week_number (Curveball Weeks are weeks 3, 6, 9, 12 — see lib/rules.ts)
-    const { data: weekRow } = await db.from('weeks').select('cohort_id, week_number').eq('id', week_id).single()
+    // and date (which weekly-winner rule applies — see lib/weekly-winner.ts)
+    const { data: weekRow } = await db.from('weeks').select('cohort_id, week_number, date').eq('id', week_id).single()
     const cohortId: string | null = weekRow?.cohort_id ?? null
     const isCurveball = weekRow ? isCurveballWeek(weekRow.week_number) : false
+    const weekDate: string = weekRow?.date ?? ''
 
     // Upsert results
     const resultRows = leaderboard
@@ -86,8 +94,19 @@ export async function POST(req: NextRequest) {
           score_vs_par: isDnf ? null : e.score_vs_par,
           position: isDnf ? null : (e.position ?? null),
           ineligible_for_bonus: isDnf || ineligibleSet.has(e.matched_player_id ?? ''),
+          gross_score: isDnf ? null : (grossMap.get(e.matched_player_id!) ?? null),
         }
       })
+
+    // Weekly winner — decided before any write, so a week that still needs gross
+    // scores is refused whole instead of being half-saved. See lib/weekly-winner.ts.
+    const winner = determineWeeklyWinner(resultRows, weekDate, manual_winner_player_id)
+    if (winner.needsGross) {
+      return NextResponse.json(
+        { error: 'Two or more players scored 40+ this week. Enter a gross score for each of them before confirming.' },
+        { status: 400 }
+      )
+    }
 
     const { error: resultsError } = await db
       .from('results')
@@ -154,12 +173,9 @@ export async function POST(req: NextRequest) {
         bonusRows.push({ week_id, player_id: entry.matched_player_id!, cohort_id: cohortId, bonus_type: 'top10', points: 1 })
       }
 
-      // Weekly winner — Max 40 rule: highest score capped at 40, ties at 40+ broken by
-      // lowest gross (vs-par). A tie that survives that (or any tie below 40, which the
-      // rule sends straight to countback) can't be resolved without hole-by-hole scores
-      // this app doesn't have — in that rare case every tied player gets credited rather
-      // than picking one arbitrarily. See lib/weekly-winner.ts for the full rationale.
-      const winner = determineWeeklyWinner(resultRows, manual_winner_player_id)
+      // Weekly winner bonus (winner computed above). A tie that neither the rule nor an
+      // admin's manual pick resolved credits every tied player rather than picking one
+      // arbitrarily. See lib/weekly-winner.ts for both rule versions.
       const winnerPoints = weeklyWinnerBonusPoints(isCurveball)
       for (const playerId of winner.winnerIds) {
         bonusRows.push({ week_id, player_id: playerId, cohort_id: cohortId, bonus_type: 'winner', points: winnerPoints })

@@ -10,7 +10,7 @@ import { HoleInOneManagement } from '@/components/HoleInOneManagement'
 import { supabase } from '@/lib/supabase'
 import { adminFetch, SESSION_EXPIRED_FLAG, SESSION_EXPIRED_MESSAGE } from '@/lib/admin-fetch'
 import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
-import { determineWeeklyWinner, determineWoodenSpoon } from '@/lib/weekly-winner'
+import { determineWeeklyWinner, determineWoodenSpoon, max40Group, usesMax40GrossRule } from '@/lib/weekly-winner'
 import { normalizeCountryCode } from '@/lib/flag-codes.mjs'
 import type { ParsedWeekData, MatchedLeaderboardEntry, MatchedCTPEntry, MatchedLDEntry } from '@/types'
 
@@ -108,8 +108,11 @@ export default function AdminPage() {
   const [parseError, setParseError] = useState('')
   const [ineligiblePlayers, setIneligiblePlayers] = useState<Set<string>>(new Set())
   const [dnfPlayers, setDnfPlayers] = useState<Set<string>>(new Set())
-  // Admin's manual pick when Trackman itself couldn't break a weekly-winner tie.
+  // Admin's manual pick when the weekly-winner rule couldn't break a tie.
   const [manualWinnerId, setManualWinnerId] = useState<string | null>(null)
+  // Gross strokes as typed, keyed by player id — only asked for when two or more
+  // players score 40+ in a week on or after the gross-tiebreak cutover.
+  const [grossInputs, setGrossInputs] = useState<Record<string, string>>({})
   const [saveWeekLoading, setSaveWeekLoading] = useState(false)
   const [saveWeekSuccess, setSaveWeekSuccess] = useState(false)
 
@@ -253,6 +256,7 @@ export default function AdminPage() {
       setDnfPlayers(initialDnf)
       setIneligiblePlayers(new Set(initialDnf))
       setManualWinnerId(null)
+      setGrossInputs({})
       setParsedData(weekData)
       setOriginalParsedData({ leaderboard: parsed.leaderboard, ctp: parsed.ctp, ld: parsed.ld })
       setReviewWeekId(parsed.week_id)
@@ -296,8 +300,19 @@ export default function AdminPage() {
     setIneligiblePlayers(new Set())
     setDnfPlayers(new Set())
     setManualWinnerId(null)
+    setGrossInputs({})
     setParsedData(null)
     setOriginalParsedData(null)
+  }
+
+  // Only valid whole numbers are sent; confirm-week also re-checks them.
+  function grossScoresForPayload(): Record<string, number> {
+    const out: Record<string, number> = {}
+    for (const [pid, raw] of Object.entries(grossInputs)) {
+      const n = parseGross(raw)
+      if (n != null) out[pid] = n
+    }
+    return out
   }
 
   async function handleConfirm() {
@@ -327,6 +342,7 @@ export default function AdminPage() {
           ineligible_players: Array.from(ineligiblePlayers),
           dnf_players: Array.from(dnfPlayers),
           manual_winner_player_id: manualWinnerId,
+          gross_scores: grossScoresForPayload(),
         }),
       })
       if (!res.ok) {
@@ -334,6 +350,7 @@ export default function AdminPage() {
         throw new Error(err.error ?? 'Confirm failed')
       }
       setManualWinnerId(null)
+      setGrossInputs({})
       setStep('done')
     } catch (err) {
       setParseError(err instanceof Error ? err.message : 'Unknown error')
@@ -601,9 +618,14 @@ export default function AdminPage() {
           score_vs_par: isDnf ? null : e.score_vs_par,
           position: isDnf ? null : (e.position ?? null),
           ineligible_for_bonus: isDnf || ineligiblePlayers.has(pid),
+          gross_score: isDnf ? null : parseGross(grossInputs[pid] ?? ''),
         }
       })
-    const weeklyWinner = determineWeeklyWinner(winnerForRules, manualWinnerId)
+    const reviewWeekDate = reviewWeek?.date ?? ''
+    // Gross inputs show only when the new rule applies AND two or more eligible players are on 40+.
+    const grossGroup = usesMax40GrossRule(reviewWeekDate) ? max40Group(winnerForRules) : []
+    const askForGross = grossGroup.length >= 2
+    const weeklyWinner = determineWeeklyWinner(winnerForRules, reviewWeekDate, manualWinnerId)
     const weeklySpoon = determineWoodenSpoon(winnerForRules)
     const weeklyWinnerPts = weeklyWinnerBonusPoints(reviewCurveball)
     const nameForPlayerId = (id: string) =>
@@ -611,6 +633,7 @@ export default function AdminPage() {
       ?? allPlayers.find((p) => p.id === id)?.display_name
       ?? '?'
     const tieUnresolved = weeklyWinner.tied
+    const needsGross = weeklyWinner.needsGross
     const flags = flagPlan(parsedData, allPlayers)
     const flagProps = (list: 'leaderboard' | 'ctp' | 'ld', index: number, playerId: string | null) => ({
       flagStatus: playerId ? flags.get(playerId) : undefined,
@@ -684,15 +707,53 @@ export default function AdminPage() {
           <div className={`mb-6 p-3 rounded-lg text-sm border ${
             tieUnresolved ? 'bg-red-50 border-red-200 text-red-700' : 'bg-amber-50 border-amber-200 text-amber-700'
           }`}>
-            {weeklyWinner.winnerIds.length === 0 ? (
+            {askForGross && (
+              <div className="mb-3">
+                <p className="mb-2">
+                  🏆 {grossGroup.length} players scored 40 or more, so the lowest gross score wins the
+                  week. Enter each player&apos;s gross score (strokes) from Trackman:
+                </p>
+                <div className="flex flex-col gap-2">
+                  {grossGroup.map((r) => (
+                    <label key={r.player_id} className="flex items-center gap-3">
+                      <span className="w-40 truncate font-medium">{nameForPlayerId(r.player_id)}</span>
+                      <span className="text-xs opacity-80">{r.stableford_score} pts</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        step={1}
+                        value={grossInputs[r.player_id] ?? ''}
+                        onChange={(ev) => {
+                          const value = ev.target.value
+                          setGrossInputs((prev) => ({ ...prev, [r.player_id]: value }))
+                          setManualWinnerId(null)
+                        }}
+                        placeholder="Gross"
+                        aria-label={`Gross score for ${nameForPlayerId(r.player_id)}`}
+                        className="w-24 px-2 py-1 font-mono text-gray-900 bg-white border border-gray-300 rounded"
+                      />
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            {needsGross ? (
+              <p className="font-medium">
+                Enter a gross score for every player on 40+ above before confirming. No winner is
+                decided until they are all in.
+              </p>
+            ) : weeklyWinner.winnerIds.length === 0 ? (
               <>No bonus-eligible players this week — no weekly winner to award.</>
             ) : tieUnresolved ? (
               <>
                 <p className="mb-2">
                   🏆 Weekly winner tied between{' '}
                   <strong>{weeklyWinner.winnerIds.map(nameForPlayerId).join(' and ')}</strong> —
-                  Trackman itself couldn&apos;t split them (same position and gross score). Pick
-                  the winner below before confirming:
+                  {weeklyWinner.tieReason === 'gross-tied-needs-manual-pick'
+                    ? ' they have the same gross score.'
+                    : ' Trackman itself couldn\u2019t split them (same position, or the same vs-par at 40+).'}{' '}
+                  Pick the winner below before confirming:
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {weeklyWinner.winnerIds.map((id) => (
@@ -779,10 +840,14 @@ export default function AdminPage() {
             <button
               onClick={handleConfirm}
               disabled={submitting || tieUnresolved}
-              title={tieUnresolved ? 'Pick a weekly winner above before confirming' : undefined}
+              title={
+                needsGross
+                  ? 'Enter a gross score for every player on 40+ before confirming'
+                  : tieUnresolved ? 'Pick a weekly winner above before confirming' : undefined
+              }
               className="flex-1 bg-amber-400 hover:bg-amber-500 disabled:opacity-50 text-black font-semibold py-3 rounded-lg transition-colors"
             >
-              {submitting ? 'Saving…' : tieUnresolved ? 'Resolve tie to continue' : 'Confirm & Save'}
+              {submitting ? 'Saving…' : needsGross ? 'Enter gross scores to continue' : tieUnresolved ? 'Resolve tie to continue' : 'Confirm & Save'}
             </button>
           </div>
         </div>
@@ -817,6 +882,14 @@ export default function AdminPage() {
 }
 
 // --- Sub-components ---
+
+// A gross score must be a positive whole number; anything else counts as missing.
+function parseGross(raw: string): number | null {
+  const t = raw.trim()
+  if (!/^\d+$/.test(t)) return null
+  const n = Number(t)
+  return n > 0 ? n : null
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (

@@ -47,6 +47,7 @@ export default async function HomePage() {
     score_vs_par: number | null
     position: number | null
     ineligible_for_bonus: boolean
+    gross_score: number | null
   }[] = []
   let contestsRaw: { week_id: string; player_id: string; contest: string }[] = []
   let bonusRaw: { player_id: string; bonus_type: string; week_id: string }[] = []
@@ -58,7 +59,7 @@ export default async function HomePage() {
       weekIds.length > 0
         ? db
             .from('results')
-            .select('week_id, player_id, stableford_score, score_vs_par, position, ineligible_for_bonus')
+            .select('week_id, player_id, stableford_score, score_vs_par, position, ineligible_for_bonus, gross_score')
             .in('week_id', weekIds)
         : Promise.resolve({ data: [] as typeof resultsRaw }),
       weekIds.length > 0
@@ -109,6 +110,7 @@ export default async function HomePage() {
     resultsByWeek.set(r.week_id, arr)
   }
   const spoonIdsByWeek = new Map<string, string[]>()
+  const weekDateById = new Map(activeCohortWeeks.map((w) => [w.id, w.date]))
   for (const [wId, weekResults] of resultsByWeek) {
     const forRules = weekResults.map((r) => ({
       player_id: r.player_id,
@@ -116,8 +118,9 @@ export default async function HomePage() {
       score_vs_par: r.score_vs_par,
       position: r.position,
       ineligible_for_bonus: r.ineligible_for_bonus ?? false,
+      gross_score: r.gross_score ?? null,
     }))
-    const winner = determineWeeklyWinner(forRules)
+    const winner = determineWeeklyWinner(forRules, weekDateById.get(wId) ?? '')
     const spoon = determineWoodenSpoon(forRules)
     spoonIdsByWeek.set(wId, spoon.spoonIds)
     for (const pid of winner.winnerIds) {

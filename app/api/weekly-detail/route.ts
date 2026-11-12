@@ -45,8 +45,8 @@ export async function GET(req: NextRequest) {
   }
 
   // Weekly winner — Max 40 rule (see lib/weekly-winner.ts). The `winner` bonus_type
-  // rows are the source of truth here: confirm-week already resolved the tie (using
-  // Trackman's own position/countback, then an admin's manual pick if it came to
+  // rows are the source of truth here: confirm-week already resolved the tie (by the
+  // rule in force for this week's date, then an admin's manual pick if it came to
   // that) and persisted exactly who won. Recomputing live would lose a manual pick,
   // so this only recomputes as a fallback for weeks with no bonus rows at all
   // (e.g. a week not attached to any cohort).
@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
     score_vs_par: r.score_vs_par,
     position: r.position,
     ineligible_for_bonus: r.ineligible_for_bonus ?? false,
+    gross_score: r.gross_score ?? null,
   }))
   const spoon = determineWoodenSpoon(resultsForRules)
   const spoonIdSet = new Set(spoon.spoonIds)
@@ -70,7 +71,7 @@ export async function GET(req: NextRequest) {
     winnerIds = persistedWinnerIds
     winnerTied = persistedWinnerIds.length > 1
   } else {
-    const liveWinner = determineWeeklyWinner(resultsForRules)
+    const liveWinner = determineWeeklyWinner(resultsForRules, week.date)
     winnerIds = liveWinner.winnerIds
     winnerTied = liveWinner.tied
   }

@@ -1,51 +1,64 @@
-import { capStableford, MAX_STABLEFORD_POINTS } from './rules'
+import { capStableford, MAX_STABLEFORD_POINTS, MAX40_GROSS_TIEBREAK_FROM_DATE } from './rules'
 
 /**
  * Weekly winner / Wooden Spoon determination — Max 40 rule.
  *
  * Pure functions, no DB access, so the same logic runs both server-side
- * (confirm-week, weekly-detail) and client-side (the admin review screen,
- * for a live preview before anything is saved).
+ * (confirm-week, weekly-detail, home and cohort pages) and client-side (the
+ * admin review screen, for a live preview before anything is saved).
  *
- * Tie handling has two genuinely different cases, and using the wrong one
- * for the wrong case is exactly the bug this file used to have:
+ * Bonus eligibility: only rows with `ineligible_for_bonus = false` can win.
+ * confirm-week sets that flag for DNF players and for anyone the admin ticks
+ * "No Bonus" (played outside normal Hamster Cage hours).
  *
- *   - A tie AT the Max 40 cap (two or more players read 40+ once capped).
- *     The written rule is explicit here: "the weekly winner is whoever has
- *     the lowest gross score." Trackman's `position` reflects the RAW
- *     (uncapped) points ranking — precisely the number the cap exists to
- *     override — so position must NOT be used to break this kind of tie.
- *     Gross score (`score_vs_par`, lower is better) is the correct and
- *     only automatic tiebreak here.
- *   - A tie BELOW the cap (a genuine points tie that never touched 40).
- *     Trackman already runs its own countback for this and `position`
- *     already reflects the result, so there's no need to reimplement
- *     back-9/back-6/back-3 — position is the correct tiebreak here.
+ * Two rule versions, chosen by weeks.date (never week_number, which resets
+ * per cohort). Past weeks are frozen, so the legacy path must stay exactly as
+ * it was.
  *
- * What this CANNOT resolve automatically is a tie that survives its
- * relevant tiebreak too (identical gross scores at the cap, or Trackman
- * itself showing a dead tie like "T1" below it). That's the rare case a
- * human needs to settle, surfaced via `tied: true`; the admin review
- * screen lets Andrew pick the winner by hand right there instead of
- * editing the database directly (see app/admin/page.tsx and
- * ConfirmWeekPayload).
+ * From MAX40_GROSS_TIEBREAK_FROM_DATE (lib/rules.ts) — determineMax40Gross():
+ *   - The group is every eligible player with RAW stableford_score >= 40.
+ *   - Nobody in the group: unchanged legacy logic (sub-40 ties go to
+ *     Trackman's `position`, which already reflects its back 9 / 6 / 3
+ *     countback; this app has no hole-by-hole scores).
+ *   - One player in the group: that player wins.
+ *   - Two or more: lowest gross strokes (`gross_score`, entered by hand on
+ *     the admin review screen) wins. A missing gross for anyone in the group
+ *     means no winner is decided (`needsGross: true`); never guess. A shared
+ *     lowest gross is `tied: true`, settled by the admin's manual pick.
+ *
+ * Before that date — determineWeeklyWinnerLegacy(), unchanged:
+ *   - A tie AT the cap is broken on `score_vs_par`, lowest first. NOTE: the
+ *     stored score_vs_par is Stableford points minus 36 (higher is better),
+ *     not gross strokes, so this effectively picks the lowest raw points.
+ *     Kept as-is because past results are frozen.
+ *   - A tie BELOW the cap is broken on Trackman's `position`.
+ *   - A tie that survives is `tied: true` for the admin's manual pick.
  */
 
 export interface WeeklyResultForRules {
   player_id: string
   stableford_score: number
+  /** Stableford points minus 36 (higher is better). Not gross strokes. */
   score_vs_par: number | null
   /** Trackman's own leaderboard position — already countback-resolved for a genuine (sub-cap) points tie. */
   position: number | null
   ineligible_for_bonus: boolean
+  /** Gross strokes, entered by hand for 40+ groups. Only read by the post-cutover rule. */
+  gross_score?: number | null
 }
 
 export interface WeeklyWinnerResult {
   winnerIds: string[]
   cappedScore: number
   tied: boolean
-  /** Null when there's no tie, or it broke cleanly on gross/position. */
-  tieReason: 'trackman-tied-needs-manual-pick' | null
+  /** Null when there's no tie, or it broke cleanly. */
+  tieReason:
+    | 'trackman-tied-needs-manual-pick'
+    | 'gross-tied-needs-manual-pick'
+    | 'needs-gross'
+    | null
+  /** True when two or more players are on 40+ and at least one has no gross score yet. No winner is decided. */
+  needsGross: boolean
 }
 
 export interface WoodenSpoonResult {
@@ -82,10 +95,68 @@ function narrowTie<T extends WeeklyResultForRules & { capped: number }>(candidat
   return sorted.filter((c) => (c.position ?? Infinity) === bestPosition)
 }
 
+/** True when the week (weeks.date, YYYY-MM-DD) uses the gross-strokes 40+ tiebreak. */
+export function usesMax40GrossRule(weekDate: string): boolean {
+  return weekDate >= MAX40_GROSS_TIEBREAK_FROM_DATE
+}
+
+/** Eligible players on 40+ raw points this week — the group the post-cutover gross tiebreak applies to. */
+export function max40Group<T extends WeeklyResultForRules>(results: T[]): T[] {
+  return results.filter((r) => !r.ineligible_for_bonus && r.stableford_score >= MAX_STABLEFORD_POINTS)
+}
+
 export function determineWeeklyWinner(
+  results: WeeklyResultForRules[],
+  weekDate: string,
+  manualWinnerId?: string | null
+): WeeklyWinnerResult {
+  if (usesMax40GrossRule(weekDate)) return determineMax40Gross(results, manualWinnerId)
+  return { ...determineWeeklyWinnerLegacy(results, manualWinnerId), needsGross: false }
+}
+
+function determineMax40Gross(
   results: WeeklyResultForRules[],
   manualWinnerId?: string | null
 ): WeeklyWinnerResult {
+  const group = max40Group(results)
+
+  if (group.length === 0) {
+    return { ...determineWeeklyWinnerLegacy(results, manualWinnerId), needsGross: false }
+  }
+
+  if (group.length === 1) {
+    return { winnerIds: [group[0].player_id], cappedScore: MAX_STABLEFORD_POINTS, tied: false, tieReason: null, needsGross: false }
+  }
+
+  if (group.some((r) => r.gross_score == null)) {
+    return { winnerIds: [], cappedScore: MAX_STABLEFORD_POINTS, tied: true, tieReason: 'needs-gross', needsGross: true }
+  }
+
+  const bestGross = Math.min(...group.map((r) => r.gross_score as number))
+  const best = group.filter((r) => r.gross_score === bestGross)
+
+  if (best.length === 1) {
+    return { winnerIds: [best[0].player_id], cappedScore: MAX_STABLEFORD_POINTS, tied: false, tieReason: null, needsGross: false }
+  }
+
+  if (manualWinnerId && best.some((r) => r.player_id === manualWinnerId)) {
+    return { winnerIds: [manualWinnerId], cappedScore: MAX_STABLEFORD_POINTS, tied: false, tieReason: null, needsGross: false }
+  }
+
+  return {
+    winnerIds: best.map((r) => r.player_id),
+    cappedScore: MAX_STABLEFORD_POINTS,
+    tied: true,
+    tieReason: 'gross-tied-needs-manual-pick',
+    needsGross: false,
+  }
+}
+
+// Pre-cutover rule. Logic frozen: past weeks must keep their results.
+function determineWeeklyWinnerLegacy(
+  results: WeeklyResultForRules[],
+  manualWinnerId?: string | null
+): Omit<WeeklyWinnerResult, 'needsGross'> {
   const eligible = results.filter((r) => !r.ineligible_for_bonus)
   if (eligible.length === 0) {
     return { winnerIds: [], cappedScore: 0, tied: false, tieReason: null }

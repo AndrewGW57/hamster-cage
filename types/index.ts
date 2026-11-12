@@ -40,6 +40,9 @@ export interface Result {
   stableford_score: number
   score_vs_par: number | null  // null for DNF
   position: number | null      // null = DNF
+  // Gross strokes, entered by hand for the Max 40 tiebreak (40+ groups only, from 2026-11-11).
+  // Null everywhere else. Not score_vs_par, which is Stableford points minus 36.
+  gross_score: number | null
   created_at: string
 }
 
@@ -107,7 +110,7 @@ export interface WeeklyDetail {
   // Curveball Weeks rule (weeks 3, 6, 9, 12) — see lib/rules.ts.
   is_curveball?: boolean
   // True when the automatic Max 40 winner determination couldn't fully resolve a
-  // tie (no hole-by-hole scores exist to run a real countback). When true, every
+  // tie and no manual pick settled it (see lib/weekly-winner.ts). When true, every
   // player in `results` with is_weekly_winner set shared the win/bonus point.
   winner_tied?: boolean
   // Entered by hand from the admin page — a badge only, no points.
@@ -128,7 +131,8 @@ export interface WeeklyResultRow {
   score_vs_par: number | null
   ineligible_for_bonus: boolean
   bonus_points: number
-  // Max 40 rule: highest CAPPED score this week (ties broken by lowest gross, see lib/weekly-winner.ts).
+  // Max 40 rule: highest CAPPED score this week. From 2026-11-11 a 40+ tie goes to lowest
+  // gross_score; earlier weeks use the legacy tiebreak. See lib/weekly-winner.ts.
   is_weekly_winner: boolean
   // Lowest score this week among bonus-eligible players.
   is_wooden_spoon: boolean
@@ -199,9 +203,12 @@ export interface ConfirmWeekPayload {
   upload_ids: string[]
   ineligible_players?: string[]
   dnf_players?: string[]
-  // Admin's manual pick when Trackman itself couldn't break a weekly-winner tie
-  // (see lib/weekly-winner.ts) — only used when that tie actually occurs.
+  // Admin's manual pick when the weekly-winner rule couldn't break a tie (same Trackman
+  // position, or same gross at 40+ — see lib/weekly-winner.ts). Only used when that tie occurs.
   manual_winner_player_id?: string | null
+  // Gross strokes keyed by player id, typed in on the review screen for players on 40+
+  // when two or more are (weeks from 2026-11-11). Saved to results.gross_score.
+  gross_scores?: Record<string, number>
 }
 
 // ---------------------------------------------------------------------

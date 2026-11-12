@@ -32,6 +32,11 @@
 --               side_contests has UNIQUE (week_id, contest), previously undocumented.
 -- 2026-11-04  supabase/migrations/20261104_hole_in_ones.sql — hole_in_ones table (manual
 --             Hole-in-One badge, no points) + merge_players() updated to move it.
+-- 2026-11-12  supabase/migrations/20261112_results_gross_score.sql —
+--             alter table results add column if not exists gross_score integer null;
+--             (gross strokes, entered by hand on the admin review screen when two or more
+--              players score 40+ in a week dated 2026-11-11 or later; lowest gross wins.
+--              Not score_vs_par, which is Stableford points minus 36. Null everywhere else.)
 -- =====================================================================
 
 -- Enable UUID extension
@@ -75,6 +80,7 @@ create table if not exists results (
   score_vs_par integer,
   position integer,
   ineligible_for_bonus boolean not null default false,
+  gross_score integer,              -- gross strokes, for the 40+ tiebreak (2026-11-12)
   created_at timestamptz not null default now(),
   unique (week_id, player_id)
 );
