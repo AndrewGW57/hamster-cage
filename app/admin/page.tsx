@@ -7,6 +7,7 @@ import { PlayerManagement } from '@/components/PlayerManagement'
 import { CohortManagement } from '@/components/CohortManagement'
 import { AdminManagement } from '@/components/AdminManagement'
 import { HoleInOneManagement } from '@/components/HoleInOneManagement'
+import { PasswordInput } from '@/components/PasswordInput'
 import { supabase } from '@/lib/supabase'
 import { adminFetch, SESSION_EXPIRED_FLAG, SESSION_EXPIRED_MESSAGE } from '@/lib/admin-fetch'
 import { isCurveballWeek, weeklyWinnerBonusPoints } from '@/lib/rules'
@@ -445,8 +446,7 @@ export default function AdminPage() {
               autoFocus
               autoComplete="username"
             />
-            <input
-              type="password"
+            <PasswordInput
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
